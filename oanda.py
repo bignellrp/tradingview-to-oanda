@@ -2,8 +2,10 @@ import datetime
 import json
 import logging
 import os.path
-
 import requests
+
+# Enable debug mode to log requests instead of sending them to OANDA
+DEBUG_MODE = True
 
 def get_datetime_offset(offset_minutes=15):
     # In RFC3339
@@ -124,7 +126,6 @@ def get_filtered_instruments(instrument_filter="EUR", trading_type="practice"):
 def buy_order(instrument, units, price, trailing_stop_loss_percent,
               take_profit_percent, trading_type="practice",
               **kwargs):
-    # https://developer.oanda.com/rest-live-v20/order-ep/
     loc = "oanda.py:buy_order"
 
     try:
@@ -175,6 +176,15 @@ def buy_order(instrument, units, price, trailing_stop_loss_percent,
             }
         }
 
+        if DEBUG_MODE:
+            # Log the payload to a file instead of sending it to OANDA
+            with open("debug_buy_order.log", "a") as log_file:
+                log_file.write(f"{get_datetime_now()} - BUY ORDER:\n")
+                log_file.write(json.dumps(payload, indent=2))
+                log_file.write("\n")
+            logging.info(f"{loc}: Debug mode enabled. Order logged to file.")
+            return {"status": "debug", "message": "Order logged to file"}
+
         payload_str = json.dumps(payload)
         headers = {
             "Content-Type": "application/json",
@@ -195,7 +205,6 @@ def buy_order(instrument, units, price, trailing_stop_loss_percent,
         return response_json
 
 def sell_order(instrument, trading_type, **kwargs):
-    # https://developer.oanda.com/rest-live-v20/position-ep/
     loc = "oanda.py:sell_order"
 
     try:
@@ -215,6 +224,15 @@ def sell_order(instrument, trading_type, **kwargs):
                 },
             "shortUnits": "NONE",
         }
+
+        if DEBUG_MODE:
+            # Log the payload to a file instead of sending it to OANDA
+            with open("debug_sell_order.log", "a") as log_file:
+                log_file.write(f"{get_datetime_now()} - SELL ORDER:\n")
+                log_file.write(json.dumps(payload, indent=2))
+                log_file.write("\n")
+            logging.info(f"{loc}: Debug mode enabled. Order logged to file.")
+            return {"status": "debug", "message": "Order logged to file"}
 
         payload_str = json.dumps(payload)
         headers = {
