@@ -1,215 +1,164 @@
 from copy import copy
-import itertools
 import json
 from json.decoder import JSONDecodeError
 import logging
-
-import web
-
+import ipaddress
+from flask import Flask, request, jsonify, abort
+import requests
 from oanda import buy_order, sell_order, get_datetime_now
-from sendgrid_api import send_mail
+
+# Load Discord webhook URL from file
+try:
+    with open("discord_webhook.json") as f:
+        webhook_data = json.load(f)
+        DISCORD_WEBHOOK_URL = webhook_data.get("url")
+        if not DISCORD_WEBHOOK_URL:
+            raise ValueError("Webhook URL is missing or empty")
+except (FileNotFoundError, KeyError, JSONDecodeError, ValueError):
+    DISCORD_WEBHOOK_URL = None
+    logging.warning("Discord webhook URL not found or invalid — alerts will not be sent")
+
+def send_discord_alert(message):
+    """Send a message to the configured Discord webhook."""
+    if not DISCORD_WEBHOOK_URL:
+        logging.info("Discord webhook is not configured, skipping alert")
+        return
+    try:
+        payload = {"content": message}
+        r = requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=5)
+        r.raise_for_status()
+    except Exception as e:
+        logging.error(f"Failed to send Discord alert: {e}")
 
 def fill_defaults(post_data):
-    loc = "server.py:fill_defaults"
     try:
         instrument = post_data["instrument"]
         price = float(post_data["price"])
     except KeyError as e:
-        logging.exception("{}: One of the required parameters was missing: {}"
-                          .format(loc, e))
+        logging.exception(f"Missing required parameter: {e}")
         raise
-
-    units = (
-        int(post_data["units"])
-        if "units" in post_data
-        else 500) # e.g. in Euros for "EURUSD" or in gold for "XAUEUR"
-    trailing_stop_loss_percent = (
-        float(post_data["trailing_stop_loss_percent"])
-        if "trailing_stop_loss_percent" in post_data
-        else 0.01) # as positive decimal
-    take_profit_percent = (
-        float(post_data["take_profit_percent"])
-        if "take_profit_percent" in post_data
-        else 0.06) # as positive decimal
-    trading_type = (
-        post_data["trading_type"]
-        if "trading_type" in post_data
-        else "practice")
 
     return {
         "instrument": instrument,
-        "units": units,
+        "units": int(post_data.get("units", 500)),
         "price": price,
-        "trailing_stop_loss_percent": trailing_stop_loss_percent,
-        "take_profit_percent": take_profit_percent,
-        "trading_type": trading_type,
+        "trailing_stop_loss_percent": float(post_data.get("trailing_stop_loss_percent", 0.01)),
+        "take_profit_percent": float(post_data.get("take_profit_percent", 0.06)),
+        "trading_type": post_data.get("trading_type", "practice"),
     }
 
 def translate(post_data):
-    loc = "server.py:translate"
-
-    try:
-        # Translate `ticker` to `instrument` by adding a "_"
-        ticker = post_data.pop("ticker")
-        if len(ticker) == 6:
-            post_data["instrument"] = "{}_{}".format(ticker[:3], ticker[3:])
-        else:
-            raise ValueError("This ticker does not match my assumptions")
-
-    except KeyError as e:
-        logging.exception("{}: One of the parameters I am trying to translate "
-                          "does not exist: {}".format(loc, e))
-        raise
-    except ValueError as e:
-        logging.exception("{}: One of the parameters I am trying to translate "
-                          "does not match my assumptions: {}".format(loc, e))
-        raise
-
+    ticker = post_data.pop("ticker", None)
+    if not ticker or len(ticker) != 6:
+        raise ValueError("Invalid or missing ticker")
+    post_data["instrument"] = f"{ticker[:3]}_{ticker[3:]}"
     return post_data
 
 def post_data_to_oanda_parameters(post_data):
-    loc = "server.py:post_data_to_oanda_parameters"
-
-    try:
-        translated_data = translate(post_data)
-        filled_data = fill_defaults(translated_data)
-    except Exception as e:
-        logging.exception("{}: Could not translate data or fill all"
-                          "defaults: {}".format(loc, e))
-        raise
-
-    return filled_data
+    translated_data = translate(post_data)
+    return fill_defaults(translated_data)
 
 class log:
     def __init__(self):
         self.content = ""
-
     def __str__(self):
         return str(self.content)
-
     def add(self, message):
-        if len(self.content) > 0:
+        if self.content:
             self.content += "\n"
+        self.content += f"{get_datetime_now()}: {message}"
 
-        self.content = "{}{}: {}".format(
-            self.content, get_datetime_now(), message)
+# Flask app
+app = Flask(__name__)
 
-class webhook:
-    def POST(self):
-        loc = "server.py:webhook:POST"
-        local_log = log()
-
-        web_data = web.data()
-
-        # Load the received JSON
-        try:
-            post_data = json.loads(web_data)
-        except JSONDecodeError as e:
-            error_message = ("{}: Request received with invalid JSON: {}".format(loc, e))
-            logging.exception(error_message)
-
-            local_log.add("ERROR:root:{}:\n{}".format(
-                error_message, web_data))
-
-            mail_response = send_mail(
-                "TradingView to OANDA: Fail", str(local_log))
-            local_log.add("INFO:ROOT:{}: I also sent you this log through "
-                          "SendGrid. They replied with status code {}: {}"
-                .format(loc, mail_response.status_code, mail_response.body))
-
-            raise web.internalerror(local_log)
-
-        info_message = "{}: Request received with valid JSON".format(loc)
-        logging.info(info_message)
-        local_log.add("INFO:ROOT:{}:\n{}".format(
-                info_message, json.dumps(post_data, indent=2, sort_keys=True)))
-
-        # And, if it could be loaded, translate it to OANDA parameters
-        try:
-            oanda_parameters = post_data_to_oanda_parameters(copy(post_data))
-        except Exception as e:
-            error_message = ("{}: Could not translate JSON to OANDA "
-                             "parameters: {}".format(loc, e))
-            logging.exception(error_message)
-
-            local_log.add("ERROR:root:{}".format(error_message))
-
-            mail_response = send_mail(
-                "TradingView to OANDA: Fail", str(local_log))
-            local_log.add("INFO:ROOT:{}: I also sent you this log through "
-                          "SendGrid. They replied with status code {}: {}"
-                .format(loc, mail_response.status_code, mail_response.body))
-
-            raise web.internalerror(local_log)
-        info_message = ("{}: Translated that to OANDA parameters".format(loc))
-        logging.info(info_message)
-        local_log.add("INFO:ROOT:{}:\n{}".format(
-            info_message, json.dumps(
-                oanda_parameters, indent=2, sort_keys=True)))
-
-        # Then send those to OANDA as either a buy or sell order
-        try:
-            if post_data["action"] == "buy":
-                order_response = buy_order(**oanda_parameters)
-                mail_subject = ("TradingView to OANDA: Sent an order to buy {} "
-                                "units of {}".format(
-                    oanda_parameters["units"], oanda_parameters["instrument"]))
-            elif post_data["action"] == "sell":
-                order_response = sell_order(**oanda_parameters)
-                mail_subject = ("TradingView to OANDA: Sent an order to close "
-                                "all positions of {}".format(
-                    oanda_parameters["instrument"]))
-            else:
-                raise ValueError("You did not specify whether you want to buy "
-                                 "or sell")
-        except Exception as e:
-            error_message = ("{}: Could not send the order to OANDA because of "
-                             "an error: {}".format(loc, e))
-            logging.exception(error_message)
-
-            local_log.add("ERROR:root:{}".format(error_message))
-
-            mail_response = send_mail(
-                "TradingView to OANDA: Fail", str(local_log))
-            local_log.add("INFO:ROOT:{}: I also sent you this log through "
-                          "SendGrid. They replied with status code {}: {}"
-                .format(loc, mail_response.status_code, mail_response.body))
-
-            raise web.internalerror(local_log)
-        info_message = "{}: Sent order to OANDA".format(loc)
-        logging.info(info_message)
-        local_log.add("INFO:ROOT:{}:\n{}".format(info_message,
-            json.dumps(order_response, indent=2, sort_keys=True)))
-
-        # Mail the log and reply to the POST request
-        mail_response = send_mail(mail_subject, str(local_log))
-        local_log.add("INFO:ROOT:{}: I also sent you this log through "
-                      "SendGrid. They replied with status code {}: {}".format(
-            loc, mail_response.status_code, mail_response.body))
-
-        web.header("Content-Type", "text/plain")
-        return (local_log)
-
-# Set logging parameters
+# Logging
 logging.basicConfig(level=logging.INFO)
-loc = "server.py"
 
-# Load the list of access tokens and set webhook URLs for each one
+# Access tokens
 try:
-    with open("access_tokens.json") as access_tokens_json:
-        access_tokens = (json.load(access_tokens_json))
+    with open("access_token.json") as f:
+        access_token = json.load(f)
+except FileNotFoundError:
+    logging.error(
+        "The file 'access_token.json' was not found. Please refer to the README.md "
+        "for instructions on creating 'access_token.json' and 'credentials.json'."
+    )
+    raise SystemExit("Missing 'access_token.json'. Exiting.")
 except JSONDecodeError as e:
-    logging.exception(
-        "{}: Could not read tokens from access_tokens.json: {}".format(loc, e))
-    raise
+    logging.error(
+        f"Could not parse 'access_token.json': {e}. Please ensure the file is valid JSON."
+    )
+    raise SystemExit("Invalid 'access_token.json'. Exiting.")
 
-urls = tuple(itertools.chain.from_iterable(
-    ["/webhook/{}".format(token)] + ["webhook"] for token in access_tokens))
+# Allowed IPs
+TRADINGVIEW_IPS = {"52.89.214.238", "34.212.75.30", "54.218.53.128", "52.32.178.7", "127.0.0.1", "::1"}
+TRADINGVIEW_NETS = {ipaddress.ip_network("192.168.0.0/24")}
 
-# Set up the server
-app = web.application(urls, globals())
+def ip_filter(remote_ip):
+    try:
+        ip_obj = ipaddress.ip_address(remote_ip)
+    except ValueError:
+        abort(403, description="403 Forbidden: Invalid IP")
+    if remote_ip not in TRADINGVIEW_IPS and not any(ip_obj in net for net in TRADINGVIEW_NETS):
+        abort(403, description="403 Forbidden: IP not allowed")
+
+@app.route("/webhook/<token>", methods=["POST"])
+def webhook(token):
+    if token not in access_token:
+        abort(403, description="403 Forbidden: Invalid token")
+
+    remote_ip = request.remote_addr
+    ip_filter(remote_ip)
+
+    local_log = log()
+
+    # Load JSON
+    try:
+        post_data = request.get_json()
+        if not post_data:
+            raise JSONDecodeError("Empty JSON body", "", 0)
+    except JSONDecodeError as e:
+        msg = f"Invalid JSON: {e}"
+        logging.exception(msg)
+        local_log.add(msg)
+        send_discord_alert(f"❌ TradingView Webhook Error:\n```\n{msg}\n```")
+        abort(400, description=local_log)
+
+    local_log.add(f"Received valid JSON:\n{json.dumps(post_data, indent=2)}")
+
+    # Translate & fill defaults
+    try:
+        oanda_parameters = post_data_to_oanda_parameters(copy(post_data))
+    except Exception as e:
+        msg = f"Could not translate data: {e}"
+        logging.exception(msg)
+        local_log.add(msg)
+        send_discord_alert(f"❌ TradingView Data Error:\n```\n{msg}\n```")
+        abort(400, description=local_log)
+
+    local_log.add(f"OANDA parameters:\n{json.dumps(oanda_parameters, indent=2)}")
+
+    # Place order
+    try:
+        if post_data["action"] == "buy":
+            order_response = buy_order(**oanda_parameters)
+            alert_msg = f"✅ Placed BUY order: {oanda_parameters['units']} {oanda_parameters['instrument']}"
+        elif post_data["action"] == "sell":
+            order_response = sell_order(**oanda_parameters)
+            alert_msg = f"✅ Placed SELL order: {oanda_parameters['instrument']}"
+        else:
+            raise ValueError("Action must be 'buy' or 'sell'")
+    except Exception as e:
+        msg = f"Error sending order to OANDA: {e}"
+        logging.exception(msg)
+        local_log.add(msg)
+        send_discord_alert(f"❌ OANDA Order Error:\n```\n{msg}\n```")
+        abort(500, description=local_log)
+
+    local_log.add("Order sent successfully")
+    send_discord_alert(alert_msg)
+
+    return jsonify({"log": str(local_log)}), 200
 
 if __name__ == "__main__":
-    # Start the server
-    logging.info("{}: Starting the server".format(loc))
-    app.run()
+    app.run(host="0.0.0.0", port=8080, debug=True)
