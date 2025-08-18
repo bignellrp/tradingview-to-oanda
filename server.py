@@ -2,8 +2,7 @@ from copy import copy
 import json
 from json.decoder import JSONDecodeError
 import logging
-import ipaddress
-from fastapi import FastAPI, HTTPException, Request, Depends
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 import requests
 from oanda import buy_order, sell_order, get_datetime_now
@@ -73,7 +72,14 @@ class Log:
         self.content += f"{get_datetime_now()}: {message}"
 
 # Logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,  # Set the logging level
+    format="%(asctime)s - %(levelname)s - %(message)s",  # Log format
+    handlers=[
+        logging.FileHandler("server.log"),  # Log to a file named 'server.log'
+        logging.StreamHandler()  # Also log to the console
+    ]
+)
 
 # Access tokens
 try:
@@ -91,27 +97,30 @@ except JSONDecodeError as e:
     )
     raise SystemExit("Invalid 'access_token.json'. Exiting.")
 
-# Allowed IPs
-TRADINGVIEW_IPS = {"52.89.214.238", "34.212.75.30", "54.218.53.128", "52.32.178.7", "127.0.0.1", "::1"}
-TRADINGVIEW_NETS = {ipaddress.ip_network("192.168.0.0/24")}
-
-def ip_filter(remote_ip: str):
-    try:
-        ip_obj = ipaddress.ip_address(remote_ip)
-    except ValueError:
-        raise HTTPException(status_code=403, detail="403 Forbidden: Invalid IP")
-    if remote_ip not in TRADINGVIEW_IPS and not any(ip_obj in net for net in TRADINGVIEW_NETS):
-        raise HTTPException(status_code=403, detail="403 Forbidden: IP not allowed")
-
 @app.post("/webhook/{token}")
 async def webhook(token: str, request: Request):
     if token not in access_token:
         raise HTTPException(status_code=403, detail="403 Forbidden: Invalid token")
 
-    remote_ip = request.client.host
-    ip_filter(remote_ip)
-
     local_log = Log()
+
+    # Extract certificate and public IP from headers
+    client_cert = request.headers.get("X-Client-Cert")
+    client_ip = request.headers.get("X-Real-IP") or request.headers.get("X-Forwarded-For")
+
+    # Log the certificate and IP for debugging
+    logging.info(f"Client Certificate: {client_cert}")
+    logging.info(f"Client IP: {client_ip}")
+
+    # Validate the certificate and IP (example validation logic)
+    if not client_cert or not client_ip:
+        msg = "Missing client certificate or IP in headers"
+        logging.error(msg)
+        raise HTTPException(status_code=400, detail=msg)
+
+    # Add certificate and IP to the local log
+    local_log.add(f"Client Certificate: {client_cert}")
+    local_log.add(f"Client IP: {client_ip}")
 
     # Load JSON
     try:
@@ -158,5 +167,8 @@ async def webhook(token: str, request: Request):
 
     local_log.add("Order sent successfully")
     send_discord_alert(alert_msg)
+
+    # Log the local_log content to the file
+    logging.info(f"Request log:\n{str(local_log)}")
 
     return JSONResponse(content={"log": str(local_log)}, status_code=200)
