@@ -136,10 +136,14 @@ async def webhook(token: str, request: Request):
     # Validate client IP
     if client_ip not in TRADINGVIEW_IPS:
         logging.warning(f"Unauthorized access attempt from IP: {client_ip}")
-        raise HTTPException(status_code=403, detail="Forbidden: Unauthorised IP address.")
+        raise HTTPException(status_code=403, detail="Forbidden: Unauthorized IP address.")
 
     logging.info(f"Authorized request from IP: {client_ip}")
     local_log.add(f"Client IP: {client_ip}")
+
+    # Log the raw request body
+    body = await request.body()
+    logging.info(f"Raw request body: {body.decode('utf-8')}")
 
     # Load JSON
     try:
