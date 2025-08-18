@@ -150,13 +150,9 @@ async def buy_order(
         }
 
         if DEBUG_MODE:
-            # Log the payload instead of sending it
-            with open("debug_buy_order.log", "a") as log_file:
-                log_file.write(f"{get_datetime_now()} - BUY ORDER:\n")
-                log_file.write(json.dumps(payload, indent=2))
-                log_file.write("\n")
-            logging.info(f"{loc}: Debug mode enabled. Order logged to file.")
-            return {"status": "debug", "message": "Order logged to file"}
+            logging.info(f"{get_datetime_now()} - BUY ORDER:\n{json.dumps(payload, indent=2)}")
+            logging.info(f"{loc}: Debug mode enabled. Order logged to server.log.")
+            return {"status": "debug", "message": "Order logged to server.log"}
 
         async with httpx.AsyncClient() as client:
             response = await client.post(
@@ -187,13 +183,10 @@ async def sell_order(instrument: str, trading_type: str, **kwargs) -> dict:
         }
 
         if DEBUG_MODE:
-            # Log the payload instead of sending it
-            with open("debug_sell_order.log", "a") as log_file:
-                log_file.write(f"{get_datetime_now()} - SELL ORDER:\n")
-                log_file.write(json.dumps(payload, indent=2))
-                log_file.write("\n")
-            logging.info(f"{loc}: Debug mode enabled. Order logged to file.")
-            return {"status": "debug", "message": "Order logged to file"}
+            # Log the payload to the centralized server.log
+            logging.info(f"{get_datetime_now()} - SELL ORDER:\n{json.dumps(payload, indent=2)}")
+            logging.info(f"{loc}: Debug mode enabled. Order logged to server.log.")
+            return {"status": "debug", "message": "Order logged to server.log"}
 
         async with httpx.AsyncClient() as client:
             response = await client.put(
@@ -212,7 +205,14 @@ async def sell_order(instrument: str, trading_type: str, **kwargs) -> dict:
 
 if __name__ == "__main__":
     # Set logging parameters
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(levelname)s - %(message)s",
+        handlers=[
+            logging.FileHandler("server.log"),
+            logging.StreamHandler()
+        ]
+    )
     loc = "oanda.py"
 
     # Uncomment this bit to write all instruments and their price
