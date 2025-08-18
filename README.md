@@ -64,6 +64,16 @@ Create a [discord webhook](https://support.discord.com/hc/en-us/articles/2283836
 }
 ```
 
+## Run the server
+Server has been converted to use fast-api for async support, security and speed.
+To run the server use uvicorn:
+
+(Remove the --reload in production, its used in development to autoreload after code changes)
+
+```
+uvicorn server:app --host 0.0.0.0 --port 8080 --reload
+```
+
 ## Add alerts to TradingView
 1. Add an alert to whatever condition you want, for example [a custom-built `study`](https://www.tradingview.com/pine-script-docs/en/v4/annotations/Alert_conditions.html)
 1. Check the __Webhook URL__ box and paste the URL of your PythonAnywhere webhook including access token
