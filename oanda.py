@@ -2,142 +2,132 @@ import datetime
 import json
 import logging
 import os.path
-import requests
+import httpx  # Replaced requests with httpx for async support
 
 # Enable debug mode to log requests instead of sending them to OANDA
 DEBUG_MODE = True
 
-def get_datetime_offset(offset_minutes=15):
-    # In RFC3339
+def get_datetime_offset(offset_minutes: int = 15) -> str:
+    """Get the current UTC time offset by a given number of minutes in RFC3339 format."""
     now = datetime.datetime.utcnow()
     now_plus_offset = now + datetime.timedelta(minutes=offset_minutes)
-    return "{}Z".format(now_plus_offset.isoformat("T"))
+    return f"{now_plus_offset.isoformat('T')}Z"
 
-def get_datetime_now():
+def get_datetime_now() -> str:
+    """Get the current UTC time in RFC3339 format."""
     now = datetime.datetime.utcnow()
-    return "{}Z".format(now.isoformat("T"))
+    return f"{now.isoformat('T')}Z"
 
-def get_credentials(trading_type):
+def get_credentials(trading_type: str) -> dict:
+    """Retrieve OANDA API credentials for the given trading type."""
     loc = "oanda.py:get_credentials"
 
     try:
         with open("credentials.json") as credentials_json:
-            credentials = json.load(credentials_json)["oanda_{}"
-                .format(trading_type)]
+            credentials = json.load(credentials_json)[f"oanda_{trading_type}"]
     except Exception as e:
-        logging.exception("{}: Could not read {} credentials from "
-                          "credentials.json: ".format(loc, trading_type, e))
+        logging.exception(f"{loc}: Could not read {trading_type} credentials from credentials.json: {e}")
         raise
 
     return credentials
 
-def get_base_url(trading_type):
-    return "https://api-fx{}.oanda.com".format(
-        "trade" if trading_type == "live" else "practice")
+def get_base_url(trading_type: str) -> str:
+    """Get the base URL for the OANDA API based on the trading type."""
+    return f"https://api-fx{'trade' if trading_type == 'live' else 'practice'}.oanda.com"
 
-def get_accounts(trading_type="practice"):
-    # https://developer.oanda.com/rest-live-v20/account-ep/
+async def get_accounts(trading_type: str = "practice") -> httpx.Response:
+    """Retrieve OANDA accounts for the given trading type."""
     loc = "oanda.py:get_accounts"
 
     try:
         credentials = get_credentials(trading_type)
 
-        url = "{}/v3/accounts".format(get_base_url(trading_type))
+        url = f"{get_base_url(trading_type)}/v3/accounts"
         headers = {
             "Content-Type": "application/json",
-            "Authorization": "Bearer {}".format(credentials["api_key"]),
+            "Authorization": f"Bearer {credentials['api_key']}",
         }
 
-        response = requests.request("GET", url, headers=headers)
-
-        return response
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, headers=headers)
+            response.raise_for_status()
+            return response
     except Exception as e:
-        logging.exception("{}: Could not get {} accounts from the OANDA API: {}"
-                          .format(loc, trading_type, e))
+        logging.exception(f"{loc}: Could not get {trading_type} accounts from the OANDA API: {e}")
         raise
 
-def get_instruments(trading_type="practice"):
-    # https://developer.oanda.com/rest-live-v20/account-ep/
+async def get_instruments(trading_type: str = "practice") -> dict:
+    """Retrieve OANDA instruments for the given trading type."""
     loc = "oanda.py:get_instruments"
 
     try:
         credentials = get_credentials(trading_type)
 
-        url = "{}/v3/accounts/{}/instruments".format(
-            get_base_url(trading_type),
-            credentials["account_id"])
-
+        url = f"{get_base_url(trading_type)}/v3/accounts/{credentials['account_id']}/instruments"
         headers = {
             "Content-Type": "application/json",
-            "Authorization": "Bearer {}".format(credentials["api_key"]),
+            "Authorization": f"Bearer {credentials['api_key']}",
         }
 
-        instruments_response = requests.request("GET", url, headers=headers)
-        instruments = json.loads(instruments_response.text.encode("utf8"))
-        return instruments
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, headers=headers)
+            response.raise_for_status()
+            return response.json()
     except Exception as e:
-        logging.exception("{}: Could not get {} instruments from the OANDA "
-                          "API: {}".format(loc, trading_type, e))
+        logging.exception(f"{loc}: Could not get {trading_type} instruments from the OANDA API: {e}")
         raise
 
-def get_price_precision(instrument, trading_type="practice"):
+def get_price_precision(instrument: str, trading_type: str = "practice") -> int:
+    """Get the price precision for a given instrument."""
     price_precisions = get_price_precisions(trading_type)
     return price_precisions[instrument]
 
-def get_price_precisions(trading_type="practice"):
+def get_price_precisions(trading_type: str = "practice") -> dict:
+    """Retrieve or generate price precisions for instruments."""
     price_precisions_file = "price_precisions.json"
 
     if os.path.isfile(price_precisions_file):
         price_precisions = load_price_precisions(price_precisions_file)
-        # Note that there is just 1 list for both trading types,
-        # although I do not think they differ
     else:
-        price_precisions = save_price_precisions(
-            price_precisions_file, trading_type)
+        price_precisions = save_price_precisions(price_precisions_file, trading_type)
 
     return price_precisions
 
-def save_price_precisions(price_precisions_file, trading_type="practice"):
+def save_price_precisions(price_precisions_file: str, trading_type: str = "practice") -> dict:
+    """Save price precisions for instruments to a file."""
     instruments = get_instruments(trading_type)
 
-    price_precisions = {instrument["name"]:instrument["displayPrecision"] for
-        instrument in instruments["instruments"]}
+    price_precisions = {instrument["name"]: instrument["displayPrecision"] for instrument in instruments["instruments"]}
 
-    with open("price_precisions.json", "w") as price_precisions_json:
-        json.dump(price_precisions, price_precisions_json, indent=2,
-                  sort_keys=True)
+    with open(price_precisions_file, "w") as price_precisions_json:
+        json.dump(price_precisions, price_precisions_json, indent=2, sort_keys=True)
 
     return price_precisions
 
-def load_price_precisions(price_precisions_file):
+def load_price_precisions(price_precisions_file: str) -> dict:
+    """Load price precisions for instruments from a file."""
     with open(price_precisions_file) as price_precisions_json:
-        price_precisions = (json.load(price_precisions_json))
-    return price_precisions
+        return json.load(price_precisions_json)
 
-def get_filtered_instruments(instrument_filter="EUR", trading_type="practice"):
-    loc = "oanda.py:get_filtered_instruments"
-
-    instruments = get_instruments(trading_type)
-    filtered_instruments = list(filter(lambda i: instrument_filter in i,
-                                   instruments))
-
-    return filtered_instruments
-
-def buy_order(instrument, units, price, trailing_stop_loss_percent,
-              take_profit_percent, trading_type="practice",
-              **kwargs):
+async def buy_order(
+    instrument: str,
+    units: int,
+    price: float,
+    trailing_stop_loss_percent: float,
+    take_profit_percent: float,
+    trading_type: str = "practice",
+    **kwargs
+) -> dict:
+    """Place a buy order on OANDA."""
     loc = "oanda.py:buy_order"
 
     try:
         credentials = get_credentials(trading_type)
         price_decimals = get_price_precision(instrument, trading_type)
 
-        url = "{}/v3/accounts/{}/orders".format(
-            get_base_url(trading_type),
-            credentials["account_id"]
-        )
+        url = f"{get_base_url(trading_type)}/v3/accounts/{credentials['account_id']}/orders"
 
-        # Convert the entered percentages to the absolute values OANDA expects
+        # Convert percentages to absolute values
         trailing_stop_loss_distance = trailing_stop_loss_percent * price
         take_profit_price = price * (1 + take_profit_percent)
 
@@ -146,38 +136,21 @@ def buy_order(instrument, units, price, trailing_stop_loss_percent,
                 "type": "LIMIT",
                 "positionFill": "DEFAULT",
                 "timeInForce": "GTD",
-                "gtdTime": get_datetime_offset(15), # i.e. 15 m from now
+                "gtdTime": get_datetime_offset(15),
                 "instrument": instrument,
-                "units": "{0:d}".format(units), # whole units
-                "price": "{0:.{1}f}".format(price, price_decimals),
+                "units": f"{units}",
+                "price": f"{price:.{price_decimals}f}",
                 "trailingStopLossOnFill": {
-                    "distance": "{0:.{1}f}".format(trailing_stop_loss_distance,
-                                                   price_decimals),
-                    "timeInForce": "GTC",
-                    "clientExtensions": {
-                        "comment": "oanda.py/buy_order/trailing_stop_loss",
-                        "tag": "trailing_stop_loss",
-                        "id": "{}_trailing_stop_loss".format(get_datetime_now())
-                    },
+                    "distance": f"{trailing_stop_loss_distance:.{price_decimals}f}",
                 },
                 "takeProfitOnFill": {
-                    "price": "{0:.{1}f}".format(take_profit_price, price_decimals),
-                    "clientExtensions": {
-                        "comment": "oanda.py/buy_order/take_profit",
-                        "tag": "take_profit",
-                        "id": "{}_take_profit".format(get_datetime_now())
-                    },
-                },
-                "clientExtensions": {
-                    "comment": "oanda.py/buy_order/entry",
-                    "tag": "entry",
-                    "id": "{}_entry".format(get_datetime_now())
+                    "price": f"{take_profit_price:.{price_decimals}f}",
                 },
             }
         }
 
         if DEBUG_MODE:
-            # Log the payload to a file instead of sending it to OANDA
+            # Log the payload instead of sending it
             with open("debug_buy_order.log", "a") as log_file:
                 log_file.write(f"{get_datetime_now()} - BUY ORDER:\n")
                 log_file.write(json.dumps(payload, indent=2))
@@ -185,48 +158,36 @@ def buy_order(instrument, units, price, trailing_stop_loss_percent,
             logging.info(f"{loc}: Debug mode enabled. Order logged to file.")
             return {"status": "debug", "message": "Order logged to file"}
 
-        payload_str = json.dumps(payload)
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": "Bearer {}".format(credentials["api_key"]),
-            "Accept-Datetime-Format": "RFC3339"
-        }
-
-        response = requests.request(
-            "POST", url, headers=headers, data=payload_str)
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                url,
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {credentials['api_key']}",
+                },
+                json=payload,
+            )
+            response.raise_for_status()
+            return response.json()
     except Exception as e:
-        logging.exception("{}: Could not send the buy order to OANDA: {}"
-                          .format(loc, e))
+        logging.exception(f"{loc}: Could not send the buy order to OANDA: {e}")
         raise
-    else:
-        response_text = response.text.encode("utf8")
-        response_json = json.loads(response_text)
 
-        return response_json
-
-def sell_order(instrument, trading_type, **kwargs):
+async def sell_order(instrument: str, trading_type: str, **kwargs) -> dict:
+    """Close a position on OANDA."""
     loc = "oanda.py:sell_order"
 
     try:
         credentials = get_credentials(trading_type)
 
-        url = "{}/v3/accounts/{}/positions/{}/close".format(
-            get_base_url(trading_type),
-            credentials["account_id"],
-            instrument)
+        url = f"{get_base_url(trading_type)}/v3/accounts/{credentials['account_id']}/positions/{instrument}/close"
 
         payload = {
             "longUnits": "ALL",
-            "longClientExtensions": {
-                    "comment": "oanda.py/sell_order/close",
-                    "tag": "close",
-                    "id": "{}_close".format(get_datetime_now())
-                },
-            "shortUnits": "NONE",
         }
 
         if DEBUG_MODE:
-            # Log the payload to a file instead of sending it to OANDA
+            # Log the payload instead of sending it
             with open("debug_sell_order.log", "a") as log_file:
                 log_file.write(f"{get_datetime_now()} - SELL ORDER:\n")
                 log_file.write(json.dumps(payload, indent=2))
@@ -234,22 +195,20 @@ def sell_order(instrument, trading_type, **kwargs):
             logging.info(f"{loc}: Debug mode enabled. Order logged to file.")
             return {"status": "debug", "message": "Order logged to file"}
 
-        payload_str = json.dumps(payload)
-        headers = {
-            "Content-Type":"application/json",
-            "Authorization":"Bearer {}".format(credentials["api_key"]),
-            "Accept-Datetime-Format":"RFC3339"}
-
-        response = requests.request("PUT", url, headers=headers, data=payload_str)
+        async with httpx.AsyncClient() as client:
+            response = await client.put(
+                url,
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {credentials['api_key']}",
+                },
+                json=payload,
+            )
+            response.raise_for_status()
+            return response.json()
     except Exception as e:
-        logging.exception("{}: Could not send the sell order to OANDA: {}"
-                          .format(loc, e))
+        logging.exception(f"{loc}: Could not send the sell order to OANDA: {e}")
         raise
-    else:
-        response_text = response.text.encode("utf8")
-        response_json = json.loads(response_text)
-
-        return response_json
 
 if __name__ == "__main__":
     # Set logging parameters
