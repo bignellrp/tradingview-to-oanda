@@ -141,10 +141,6 @@ async def webhook(token: str, request: Request):
     logging.info(f"Authorized request from IP: {client_ip}")
     local_log.add(f"Client IP: {client_ip}")
 
-    # Log the raw request body
-    body = await request.body()
-    logging.info(f"Raw request body: {body.decode('utf-8')}")
-
     # Load JSON
     try:
         post_data = await request.json()
@@ -191,7 +187,5 @@ async def webhook(token: str, request: Request):
     local_log.add("Order sent successfully")
     send_discord_alert(alert_msg)
 
-    # Log the local_log content to the file
-    logging.info(f"Request log:\n{str(local_log)}")
-
+    # Return the response
     return JSONResponse(content={"log": str(local_log)}, status_code=200)
