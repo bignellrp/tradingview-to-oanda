@@ -2,8 +2,7 @@ from copy import copy
 import json
 from json.decoder import JSONDecodeError
 import logging
-import ipaddress
-from fastapi import FastAPI, HTTPException, Request, Depends
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 import requests
 from oanda import buy_order, sell_order, get_datetime_now
@@ -91,25 +90,10 @@ except JSONDecodeError as e:
     )
     raise SystemExit("Invalid 'access_token.json'. Exiting.")
 
-# Allowed IPs
-TRADINGVIEW_IPS = {"52.89.214.238", "34.212.75.30", "54.218.53.128", "52.32.178.7", "127.0.0.1", "::1"}
-TRADINGVIEW_NETS = {ipaddress.ip_network("192.168.0.0/24")}
-
-def ip_filter(remote_ip: str):
-    try:
-        ip_obj = ipaddress.ip_address(remote_ip)
-    except ValueError:
-        raise HTTPException(status_code=403, detail="403 Forbidden: Invalid IP")
-    if remote_ip not in TRADINGVIEW_IPS and not any(ip_obj in net for net in TRADINGVIEW_NETS):
-        raise HTTPException(status_code=403, detail="403 Forbidden: IP not allowed")
-
 @app.post("/webhook/{token}")
 async def webhook(token: str, request: Request):
     if token not in access_token:
         raise HTTPException(status_code=403, detail="403 Forbidden: Invalid token")
-
-    remote_ip = request.client.host
-    ip_filter(remote_ip)
 
     local_log = Log()
 
