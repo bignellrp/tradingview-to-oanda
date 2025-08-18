@@ -6,6 +6,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 import requests
 from oanda import buy_order, sell_order, get_datetime_now
+import os
 
 # Initialize FastAPI app
 app = FastAPI()
@@ -97,6 +98,28 @@ except JSONDecodeError as e:
     )
     raise SystemExit("Invalid 'access_token.json'. Exiting.")
 
+# Hardcoded TradingView IPs
+TRADINGVIEW_IPS = {
+    "52.89.214.238",
+    "34.212.75.30",
+    "54.218.53.128",
+    "52.32.178.7",
+}
+
+# Load additional IPs from access-list.json if it exists
+access_list_file = "access_list.json"
+if os.path.exists(access_list_file):
+    try:
+        with open(access_list_file, "r") as f:
+            additional_ips = json.load(f)
+            if isinstance(additional_ips, list):
+                TRADINGVIEW_IPS.update(additional_ips)
+                logging.info(f"Loaded additional IPs from {access_list_file}: {additional_ips}")
+            else:
+                logging.warning(f"{access_list_file} does not contain a valid list of IPs.")
+    except Exception as e:
+        logging.error(f"Error loading {access_list_file}: {e}")
+
 @app.post("/webhook/{token}")
 async def webhook(token: str, request: Request):
     if token not in access_token:
@@ -104,22 +127,18 @@ async def webhook(token: str, request: Request):
 
     local_log = Log()
 
-    # Extract certificate and public IP from headers
-    client_cert = request.headers.get("X-Client-Cert")
+    # Extract client IP from headers
     client_ip = request.headers.get("X-Real-IP") or request.headers.get("X-Forwarded-For")
+    if not client_ip:
+        logging.error("Client IP is missing from headers.")
+        raise HTTPException(status_code=400, detail="Client IP is missing from headers.")
 
-    # Log the certificate and IP for debugging
-    logging.info(f"Client Certificate: {client_cert}")
-    logging.info(f"Client IP: {client_ip}")
+    # Validate client IP
+    if client_ip not in TRADINGVIEW_IPS:
+        logging.warning(f"Unauthorized access attempt from IP: {client_ip}")
+        raise HTTPException(status_code=403, detail="Forbidden: Unauthorised IP address.")
 
-    # Validate the certificate and IP (example validation logic)
-    if not client_cert or not client_ip:
-        msg = "Missing client certificate or IP in headers"
-        logging.error(msg)
-        raise HTTPException(status_code=400, detail=msg)
-
-    # Add certificate and IP to the local log
-    local_log.add(f"Client Certificate: {client_cert}")
+    logging.info(f"Authorized request from IP: {client_ip}")
     local_log.add(f"Client IP: {client_ip}")
 
     # Load JSON

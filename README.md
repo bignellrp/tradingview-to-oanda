@@ -64,6 +64,16 @@ Create a [discord webhook](https://support.discord.com/hc/en-us/articles/2283836
 }
 ```
 
+## Access List
+The bot has been hardcoded with the [TradingView public ips](https://www.tradingview.com/support/solutions/43000529348-about-webhooks/)
+To add additional Ips for testing create the following access_list.json
+
+```json
+[
+    "<YOUR_PUBLIC_IP>"
+]
+```
+
 ## Run the server
 Server has been converted to use fast-api for async support, security and speed.
 To run the server use uvicorn:
@@ -73,6 +83,46 @@ To run the server use uvicorn:
 ```
 uvicorn server:app --host 0.0.0.0 --port 8080 --reload
 ```
+
+## Optional: Run Uvicorn as a Service on Ubuntu
+To ensure your FastAPI application runs continuously and starts automatically on system boot, you can configure it as a systemd service.
+
+Create a Systemd Service File
+Create a new service file for your application:
+
+```
+sudo vi /etc/systemd/system/tradingview-to-oanda.service
+```
+
+```
+[Unit]
+Description=FastAPI application for TradingView to OANDA
+After=network.target
+
+[Service]
+User=<YOUR_USER>
+Group=<YOUR_GROUP>
+WorkingDirectory=/home/<YOUR_USER>/tradingview-to-oanda
+ExecStart=/home/<YOUR_USER>/tradingview-to-oanda/venv/bin/uvicorn server:app --host 0.0.0.0 --port 8080
+Environment="PYTHONUNBUFFERED=1"
+Restart=always
+StandardOutput=append:/home/<YOUR_USER>/tradingview-to-oanda/server.log
+StandardError=append:/home/<YOUR_USER>/tradingview-to-oanda/server.log
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Reload the daemon and start the service.
+
+```
+sudo systemctl daemon-reload
+sudo systemctl start tradingview-to-oanda
+sudo systemctl enable tradingview-to-oanda
+sudo systemctl status tradingview-to-oanda
+sudo journalctl -u tradingview-to-oanda
+```
+
 
 ## Add alerts to TradingView
 1. Add an alert to whatever condition you want, for example [a custom-built `study`](https://www.tradingview.com/pine-script-docs/en/v4/annotations/Alert_conditions.html)
