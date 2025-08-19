@@ -5,7 +5,7 @@ import logging
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 import requests
-from oanda import buy_order, sell_order, get_datetime_now
+from oanda import buy_order, sell_order, get_datetime_now, get_account_balance  # Import the new function to fetch account balance
 import os
 
 # Initialize FastAPI app
@@ -58,9 +58,40 @@ def translate(post_data: dict):
     post_data["instrument"] = f"{ticker[:3]}_{ticker[3:]}"
     return post_data
 
-def post_data_to_oanda_parameters(post_data: dict):
+async def post_data_to_oanda_parameters(post_data: dict):
+    """Translate and fill defaults, including dynamic unit calculation."""
     translated_data = translate(post_data)
-    return fill_defaults(translated_data)
+    filled_data = fill_defaults(translated_data)
+
+    # Calculate stop-loss price and units dynamically
+    try:
+        account_balance = await get_account_balance(filled_data["trading_type"])
+        risk_amount = account_balance * 0.01  # 1% of account balance
+        stop_loss_price = float(post_data.get("stop_loss_price"))
+        price = filled_data["price"]
+
+        # Calculate stop-loss distance
+        stop_loss_distance = abs(price - stop_loss_price)
+
+        # Get pip value and calculate units
+        pip_value = 0.0001  # Default pip value for most forex pairs
+        if "JPY" in filled_data["instrument"]:  # Adjust pip value for JPY pairs
+            pip_value = 0.01
+
+        # Calculate the number of units
+        units = int(risk_amount / (stop_loss_distance / pip_value))
+        if units <= 0:
+            raise ValueError("Calculated units are zero or negative. Check stop-loss distance and account balance.")
+
+        filled_data["units"] = units
+    except KeyError as e:
+        logging.exception(f"Missing required parameter for stop-loss calculation: {e}")
+        raise HTTPException(status_code=400, detail=f"Missing required parameter: {e}")
+    except Exception as e:
+        logging.exception(f"Error calculating units: {e}")
+        raise HTTPException(status_code=400, detail=f"Error calculating units: {e}")
+
+    return filled_data
 
 class Log:
     def __init__(self):
@@ -157,7 +188,7 @@ async def webhook(token: str, request: Request):
 
     # Translate & fill defaults
     try:
-        oanda_parameters = post_data_to_oanda_parameters(copy(post_data))
+        oanda_parameters = await post_data_to_oanda_parameters(post_data)  # Updated to await
     except Exception as e:
         msg = f"Could not translate data: {e}"
         logging.exception(msg)
@@ -170,10 +201,10 @@ async def webhook(token: str, request: Request):
     # Place order
     try:
         if post_data["action"] == "buy":
-            order_response = buy_order(**oanda_parameters)
+            order_response = await buy_order(**oanda_parameters)  # Ensure buy_order is async
             alert_msg = f"✅ Placed BUY order: {oanda_parameters['units']} {oanda_parameters['instrument']}"
         elif post_data["action"] == "sell":
-            order_response = sell_order(**oanda_parameters)
+            order_response = await sell_order(**oanda_parameters)  # Ensure sell_order is async
             alert_msg = f"✅ Placed SELL order: {oanda_parameters['instrument']}"
         else:
             raise ValueError("Action must be 'buy' or 'sell'")

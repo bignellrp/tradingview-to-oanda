@@ -111,38 +111,41 @@ def load_price_precisions(price_precisions_file: str) -> dict:
 
 async def buy_order(
     instrument: str,
-    units: int,
     price: float,
-    trailing_stop_loss_percent: float = None,
-    take_profit_percent: float = None,
-    stop_loss_price: float = None,
-    take_profit_price: float = None,
+    stop_loss_price: float,
+    risk_percent: float = 1.0,  # Risk as a percentage of account balance
     trading_type: str = "practice",
     **kwargs
 ) -> dict:
-    """Place a buy order on OANDA."""
+    """Place a buy order on OANDA with dynamic unit calculation."""
     loc = "oanda.py:buy_order"
 
     try:
-        # Validation: Ensure no conflicts between percentages and absolute values
-        if trailing_stop_loss_percent is not None and stop_loss_price is not None:
-            raise ValueError("Provide either 'trailing_stop_loss_percent' or 'stop_loss_price', but not both.")
-        if take_profit_percent is not None and take_profit_price is not None:
-            raise ValueError("Provide either 'take_profit_percent' or 'take_profit_price', but not both.")
+        # Retrieve account balance
+        account_balance = await get_account_balance(trading_type)
+
+        # Calculate risk amount (1% of account balance)
+        risk_amount = account_balance * (risk_percent / 100)
+
+        # Calculate stop-loss distance
+        stop_loss_distance = abs(price - stop_loss_price)
+
+        # Get pip value and calculate units
+        pip_value = 0.0001  # Default pip value for most forex pairs
+        if "JPY" in instrument:  # Adjust pip value for JPY pairs
+            pip_value = 0.01
+
+        # Calculate the number of units to trade
+        units = int(risk_amount / (stop_loss_distance / pip_value))
+
+        # Ensure units are positive
+        if units <= 0:
+            raise ValueError("Calculated units are zero or negative. Check stop-loss distance and account balance.")
 
         credentials = get_credentials(trading_type)
         price_decimals = get_price_precision(instrument, trading_type)
 
         url = f"{get_base_url(trading_type)}/v3/accounts/{credentials['account_id']}/orders"
-
-        # Convert percentages to absolute values if provided
-        trailing_stop_loss_distance = None
-        if trailing_stop_loss_percent is not None:
-            trailing_stop_loss_distance = trailing_stop_loss_percent * price
-
-        # Use absolute take-profit price if provided, otherwise calculate from percentage
-        if take_profit_price is None and take_profit_percent is not None:
-            take_profit_price = price * (1 + take_profit_percent)
 
         payload = {
             "order": {
@@ -153,26 +156,11 @@ async def buy_order(
                 "instrument": instrument,
                 "units": f"{units}",
                 "price": f"{price:.{price_decimals}f}",
+                "stopLossOnFill": {
+                    "price": f"{stop_loss_price:.{price_decimals}f}",
+                },
             }
         }
-
-        # Add trailing stop-loss if provided
-        if trailing_stop_loss_distance is not None:
-            payload["order"]["trailingStopLossOnFill"] = {
-                "distance": f"{trailing_stop_loss_distance:.{price_decimals}f}",
-            }
-
-        # Add absolute stop-loss price if provided
-        if stop_loss_price is not None:
-            payload["order"]["stopLossOnFill"] = {
-                "price": f"{stop_loss_price:.{price_decimals}f}",
-            }
-
-        # Add absolute take-profit price if provided
-        if take_profit_price is not None:
-            payload["order"]["takeProfitOnFill"] = {
-                "price": f"{take_profit_price:.{price_decimals}f}",
-            }
 
         if DEBUG_MODE:
             logging.info(f"{get_datetime_now()} - BUY ORDER:\n{json.dumps(payload, indent=2)}")
@@ -190,9 +178,6 @@ async def buy_order(
             )
             response.raise_for_status()
             return response.json()
-    except ValueError as ve:
-        logging.error(f"{loc}: Validation error: {ve}")
-        raise
     except Exception as e:
         logging.exception(f"{loc}: Could not send the buy order to OANDA: {e}")
         raise
@@ -229,6 +214,28 @@ async def sell_order(instrument: str, trading_type: str, **kwargs) -> dict:
             return response.json()
     except Exception as e:
         logging.exception(f"{loc}: Could not send the sell order to OANDA: {e}")
+        raise
+
+async def get_account_balance(trading_type: str = "practice") -> float:
+    """Retrieve the account balance from OANDA."""
+    loc = "oanda.py:get_account_balance"
+
+    try:
+        credentials = get_credentials(trading_type)
+
+        url = f"{get_base_url(trading_type)}/v3/accounts/{credentials['account_id']}"
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {credentials['api_key']}",
+        }
+
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, headers=headers)
+            response.raise_for_status()
+            account_data = response.json()
+            return float(account_data["account"]["balance"])
+    except Exception as e:
+        logging.exception(f"{loc}: Could not retrieve account balance: {e}")
         raise
 
 if __name__ == "__main__":
