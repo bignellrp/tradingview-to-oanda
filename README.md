@@ -126,7 +126,7 @@ sudo journalctl -u tradingview-to-oanda
 
 ## Add alerts to TradingView
 1. Add an alert to whatever condition you want, for example [a custom-built `study`](https://www.tradingview.com/pine-script-docs/en/v4/annotations/Alert_conditions.html)
-1. Check the __Webhook URL__ box and paste the URL of your PythonAnywhere webhook including access token
+1. Check the __Webhook URL__ box and paste the URL of your webhook including access token
 1. Make sure that the __Message__ is a valid JSON containing at least:
   ```json
   {"action":"buy","ticker":"{{ticker}}","close":{{close}}}
@@ -134,3 +134,81 @@ sudo journalctl -u tradingview-to-oanda
   Note:
   * The server is built in such a way that what TradingView sends as `{{ticker}}` is translated to what OANDA expects as `instrument` and `close` is translated to `price`
   * If you want to sell every position you have for this ticker, use "`sell`" as `action`
+
+## Example alerts
+
+## Place a Buy Order
+To place a buy order, the JSON payload should include the following parameters:
+
+action: "buy"
+ticker: The instrument ticker (e.g., "XAUUSD" for gold in USD).
+price: The price at which to place the buy order.
+units: The number of units to buy.
+trailing_stop_loss_percent: The trailing stop-loss percentage (optional, defaults to 0.01).
+take_profit_percent: The take-profit percentage (optional, defaults to 0.06).
+
+{{ticker}}: TradingView will replace this with the ticker of the instrument triggering the alert.
+{{close}}: TradingView will replace this with the closing price of the instrument.
+
+```json
+{
+  "action": "buy",
+  "ticker": {{ticker}},
+  "price": {{close}},
+  "units": 1,
+  "trailing_stop_loss_percent": 0.03,
+  "take_profit_percent": 0.06
+}
+```
+
+## Place a Sell Order
+To close all positions for a specific instrument (sell order), the JSON payload should include:
+
+action: "sell"
+ticker: The instrument ticker (e.g., "EURUSD" for the Euro/US Dollar pair).
+
+```json
+{
+  "action": "sell",
+  "ticker": "EURUSD"
+}
+```
+
+## Set a Stop-Loss and Take-Profit
+When placing a buy order, you can include both trailing_stop_loss_percent and take_profit_percent to automatically set stop-loss and take-profit levels.
+
+```json
+{
+  "action": "buy",
+  "ticker": "USDJPY",
+  "price": 147.754,
+  "units": 1000,
+  "trailing_stop_loss_percent": 0.02,
+  "take_profit_percent": 0.05
+}
+```
+
+Provide either 'trailing_stop_loss_percent' or 'stop_loss_price', but not both.
+
+Here is an example of the stop-loss and the take-profit set as absolute values:
+
+```json
+{
+  "action": "buy",
+  "ticker": "EURUSD",
+  "price": 1.12345,
+  "units": 1000,
+  "stop_loss_price": 1.11000,
+  "take_profit_price": 1.15000,
+  "trading_type": "practice"
+}
+```
+
+Explanation
+action: "buy" indicates a buy order.
+ticker: "EURUSD" is the instrument ticker (TradingView will send this as {{ticker}}).
+price: 1.12345 is the price at which the buy order is placed.
+units: 1000 specifies the number of units to buy.
+stop_loss_price: 1.11000 is the absolute stop-loss price.
+take_profit_price: 1.15000 is the absolute take-profit price.
+trading_type: "practice" specifies the account type (can also be "live").
