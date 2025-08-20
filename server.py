@@ -1,11 +1,17 @@
-from copy import copy
 import json
 from json.decoder import JSONDecodeError
 import logging
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 import requests
-from oanda import buy_order, sell_order, get_datetime_now, get_account_balance  # Import the new function to fetch account balance
+from oanda import (
+    get_datetime_now,
+    get_account_balance,
+    open_long_position,
+    close_long_position,
+    open_short_position,
+    close_short_position,
+)
 import os
 
 # Initialize FastAPI app
@@ -200,14 +206,20 @@ async def webhook(token: str, request: Request):
 
     # Place order
     try:
-        if post_data["action"] == "buy":
-            order_response = await buy_order(**oanda_parameters)  # Ensure buy_order is async
-            alert_msg = f"✅ Placed BUY order: {oanda_parameters['units']} {oanda_parameters['instrument']}"
-        elif post_data["action"] == "sell":
-            order_response = await sell_order(**oanda_parameters)  # Ensure sell_order is async
-            alert_msg = f"✅ Placed SELL order: {oanda_parameters['units']} {oanda_parameters['instrument']}"
+        if post_data["action"] == "open_long":
+            order_response = await open_long_position(**oanda_parameters)
+            alert_msg = f"✅ Opened LONG position for {oanda_parameters['instrument']}"
+        elif post_data["action"] == "close_long":
+            order_response = await close_long_position(oanda_parameters["instrument"], oanda_parameters["trading_type"])
+            alert_msg = f"✅ Closed LONG position for {oanda_parameters['instrument']}"
+        elif post_data["action"] == "open_short":
+            order_response = await open_short_position(**oanda_parameters)
+            alert_msg = f"✅ Opened SHORT position for {oanda_parameters['instrument']}"
+        elif post_data["action"] == "close_short":
+            order_response = await close_short_position(oanda_parameters["instrument"], oanda_parameters["trading_type"])
+            alert_msg = f"✅ Closed SHORT position for {oanda_parameters['instrument']}"
         else:
-            raise ValueError("Action must be 'buy' or 'sell'")
+            raise ValueError("Action must be 'open_long', 'close_long', 'open_short' or 'close_short'")
     except Exception as e:
         msg = f"Error sending order to OANDA: {e}"
         logging.exception(msg)
