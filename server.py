@@ -13,6 +13,8 @@ from oanda import (
     close_short_position,
 )
 import os
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import JSONResponse
 
 # Initialize FastAPI app
 app = FastAPI()
@@ -156,6 +158,29 @@ if os.path.exists(access_list_file):
                 logging.warning(f"{access_list_file} does not contain a valid list of IPs.")
     except Exception as e:
         logging.error(f"Error loading {access_list_file}: {e}")
+
+class RestrictAccessMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        # Allow only the /webhook/{token} endpoint
+        if not request.url.path.startswith("/webhook/"):
+            return JSONResponse(
+                content={"detail": "Access denied"},
+                status_code=403
+            )
+
+        # Validate client IP
+        client_ip = request.headers.get("X-Real-IP") or request.headers.get("X-Forwarded-For")
+        if not client_ip or client_ip not in TRADINGVIEW_IPS:
+            logging.warning(f"Unauthorized access attempt from IP: {client_ip}")
+            return JSONResponse(
+                content={"detail": "Forbidden: Unauthorized IP address"},
+                status_code=403
+            )
+
+        return await call_next(request)
+
+# Add the middleware to the FastAPI app
+app.add_middleware(RestrictAccessMiddleware)
 
 @app.post("/webhook/{token}")
 async def webhook(token: str, request: Request):
