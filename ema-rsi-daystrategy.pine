@@ -1,0 +1,61 @@
+//@version=5
+strategy("Daily Trade Strategy (Revised)", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=1)
+
+// === INPUTS === //
+emaFastLen    = input.int(8, title="Fast EMA")
+emaSlowLen    = input.int(21, title="Slow EMA")
+rsiLen        = input.int(14, title="RSI Length")
+rsiConfirmMin = input.int(40, title="Min RSI for Long")
+rsiConfirmMax = input.int(60, title="Max RSI for Short")
+
+sl_pct = input.float(0.2, title="Stop Loss %", minval=0.01)
+tp_pct = input.float(0.4, title="Take Profit %", minval=0.01)
+
+// === INDICATORS === //
+emaFast = ta.ema(close, emaFastLen)
+emaSlow = ta.ema(close, emaSlowLen)
+rsi     = ta.rsi(close, rsiLen)
+
+// === CONDITIONS === //
+longCond  = ta.crossover(emaFast, emaSlow) and rsi > rsiConfirmMin
+shortCond = ta.crossunder(emaFast, emaSlow) and rsi < rsiConfirmMax
+
+// === CALCULATE SL/TP LEVELS === //
+longStop  = close * (1 - sl_pct / 100)
+longTP    = close * (1 + tp_pct / 100)
+shortStop = close * (1 + sl_pct / 100)
+shortTP   = close * (1 - tp_pct / 100)
+
+// === TRADE MANAGEMENT === //
+if (longCond)
+    if (strategy.position_size < 0)
+        alert("Close Short", alert.freq_once_per_bar_close)
+    strategy.entry("Long", strategy.long)
+    strategy.exit("Exit Long", from_entry="Long", stop=longStop, limit=longTP)
+    alert('{"action":"buy","ticker":"' + syminfo.ticker + '","price":' + str.tostring(close, format.mintick) +
+          ',"units":1000,"stop_loss_price":' + str.tostring(longStop, format.mintick) +
+          ',"take_profit_price":' + str.tostring(longTP, format.mintick) +
+          ',"trading_type":"practice"}', alert.freq_once_per_bar_close)
+
+if (shortCond)
+    if (strategy.position_size > 0)
+        alert("Close Long", alert.freq_once_per_bar_close)
+    strategy.entry("Short", strategy.short)
+    strategy.exit("Exit Short", from_entry="Short", stop=shortStop, limit=shortTP)
+    alert('{"action":"sell","ticker":"' + syminfo.ticker + '","price":' + str.tostring(close, format.mintick) +
+          ',"units":1000,"stop_loss_price":' + str.tostring(shortStop, format.mintick) +
+          ',"take_profit_price":' + str.tostring(shortTP, format.mintick) +
+          ',"trading_type":"practice"}', alert.freq_once_per_bar_close)
+
+// === PLOTS === //
+plot(emaFast, color=color.blue, title="EMA Fast")
+plot(emaSlow, color=color.orange, title="EMA Slow")
+
+// === TP/SL LABELS ON CHART === //
+if (longCond)
+    label.new(bar_index, low, "TP: " + str.tostring(longTP, format.mintick), style=label.style_label_up, color=color.green, textcolor=color.white)
+    label.new(bar_index, low, "SL: " + str.tostring(longStop, format.mintick), style=label.style_label_down, color=color.red, textcolor=color.white)
+
+if (shortCond)
+    label.new(bar_index, high, "TP: " + str.tostring(shortTP, format.mintick), style=label.style_label_down, color=color.green, textcolor=color.white)
+    label.new(bar_index, high, "SL: " + str.tostring(shortStop, format.mintick), style=label.style_label_up, color=color.red, textcolor=color.white)

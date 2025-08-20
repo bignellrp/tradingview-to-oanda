@@ -1,8 +1,9 @@
 import datetime
 import json
 import logging
-import os.path
-import httpx  # Replaced requests with httpx for async support
+import os
+import aiofiles  # For asynchronous file I/O
+import httpx  # For asynchronous HTTP requests
 
 # Enable debug mode to log requests instead of sending them to OANDA
 DEBUG_MODE = True
@@ -77,72 +78,76 @@ async def get_instruments(trading_type: str = "practice") -> dict:
         logging.exception(f"{loc}: Could not get {trading_type} instruments from the OANDA API: {e}")
         raise
 
-def get_price_precision(instrument: str, trading_type: str = "practice") -> int:
+async def get_price_precision(instrument: str, trading_type: str = "practice") -> int:
     """Get the price precision for a given instrument."""
-    price_precisions = get_price_precisions(trading_type)
+    price_precisions = await get_price_precisions(trading_type)
     return price_precisions[instrument]
 
-def get_price_precisions(trading_type: str = "practice") -> dict:
+async def get_price_precisions(trading_type: str = "practice") -> dict:
     """Retrieve or generate price precisions for instruments."""
     price_precisions_file = "price_precisions.json"
 
     if os.path.isfile(price_precisions_file):
-        price_precisions = load_price_precisions(price_precisions_file)
+        price_precisions = await load_price_precisions(price_precisions_file)
     else:
-        price_precisions = save_price_precisions(price_precisions_file, trading_type)
+        price_precisions = await save_price_precisions(price_precisions_file, trading_type)
 
     return price_precisions
 
-def save_price_precisions(price_precisions_file: str, trading_type: str = "practice") -> dict:
+async def save_price_precisions(price_precisions_file: str, trading_type: str = "practice") -> dict:
     """Save price precisions for instruments to a file."""
-    instruments = get_instruments(trading_type)
+    instruments = await get_instruments(trading_type)
 
     price_precisions = {instrument["name"]: instrument["displayPrecision"] for instrument in instruments["instruments"]}
 
-    with open(price_precisions_file, "w") as price_precisions_json:
-        json.dump(price_precisions, price_precisions_json, indent=2, sort_keys=True)
+    async with aiofiles.open(price_precisions_file, "w") as price_precisions_json:
+        await price_precisions_json.write(json.dumps(price_precisions, indent=2, sort_keys=True))
 
     return price_precisions
 
-def load_price_precisions(price_precisions_file: str) -> dict:
+async def load_price_precisions(price_precisions_file: str) -> dict:
     """Load price precisions for instruments from a file."""
-    with open(price_precisions_file) as price_precisions_json:
-        return json.load(price_precisions_json)
+    async with aiofiles.open(price_precisions_file, "r") as price_precisions_json:
+        content = await price_precisions_json.read()
+        return json.loads(content)
 
 async def buy_order(
     instrument: str,
-    units: int,
     price: float,
-    trailing_stop_loss_percent: float = None,
-    take_profit_percent: float = None,
-    stop_loss_price: float = None,
-    take_profit_price: float = None,
+    stop_loss_price: float,
+    risk_percent: float = 1.0,  # Risk as a percentage of account balance
     trading_type: str = "practice",
     **kwargs
 ) -> dict:
-    """Place a buy order on OANDA."""
+    """Place a buy order on OANDA with dynamic unit calculation."""
     loc = "oanda.py:buy_order"
 
     try:
-        # Validation: Ensure no conflicts between percentages and absolute values
-        if trailing_stop_loss_percent is not None and stop_loss_price is not None:
-            raise ValueError("Provide either 'trailing_stop_loss_percent' or 'stop_loss_price', but not both.")
-        if take_profit_percent is not None and take_profit_price is not None:
-            raise ValueError("Provide either 'take_profit_percent' or 'take_profit_price', but not both.")
+        # Retrieve account balance
+        account_balance = await get_account_balance(trading_type)
+
+        # Calculate risk amount (1% of account balance)
+        risk_amount = account_balance * (risk_percent / 100)
+
+        # Calculate stop-loss distance
+        stop_loss_distance = abs(price - stop_loss_price)
+
+        # Get pip value and calculate units
+        pip_value = 0.0001  # Default pip value for most forex pairs
+        if "JPY" in instrument:  # Adjust pip value for JPY pairs
+            pip_value = 0.01
+
+        # Calculate the number of units to trade
+        units = int(risk_amount / (stop_loss_distance / pip_value))
+
+        # Ensure units are positive
+        if units <= 0:
+            raise ValueError("Calculated units are zero or negative. Check stop-loss distance and account balance.")
 
         credentials = get_credentials(trading_type)
-        price_decimals = get_price_precision(instrument, trading_type)
+        price_decimals = await get_price_precision(instrument, trading_type)
 
         url = f"{get_base_url(trading_type)}/v3/accounts/{credentials['account_id']}/orders"
-
-        # Convert percentages to absolute values if provided
-        trailing_stop_loss_distance = None
-        if trailing_stop_loss_percent is not None:
-            trailing_stop_loss_distance = trailing_stop_loss_percent * price
-
-        # Use absolute take-profit price if provided, otherwise calculate from percentage
-        if take_profit_price is None and take_profit_percent is not None:
-            take_profit_price = price * (1 + take_profit_percent)
 
         payload = {
             "order": {
@@ -153,26 +158,11 @@ async def buy_order(
                 "instrument": instrument,
                 "units": f"{units}",
                 "price": f"{price:.{price_decimals}f}",
+                "stopLossOnFill": {
+                    "price": f"{stop_loss_price:.{price_decimals}f}",
+                },
             }
         }
-
-        # Add trailing stop-loss if provided
-        if trailing_stop_loss_distance is not None:
-            payload["order"]["trailingStopLossOnFill"] = {
-                "distance": f"{trailing_stop_loss_distance:.{price_decimals}f}",
-            }
-
-        # Add absolute stop-loss price if provided
-        if stop_loss_price is not None:
-            payload["order"]["stopLossOnFill"] = {
-                "price": f"{stop_loss_price:.{price_decimals}f}",
-            }
-
-        # Add absolute take-profit price if provided
-        if take_profit_price is not None:
-            payload["order"]["takeProfitOnFill"] = {
-                "price": f"{take_profit_price:.{price_decimals}f}",
-            }
 
         if DEBUG_MODE:
             logging.info(f"{get_datetime_now()} - BUY ORDER:\n{json.dumps(payload, indent=2)}")
@@ -190,9 +180,6 @@ async def buy_order(
             )
             response.raise_for_status()
             return response.json()
-    except ValueError as ve:
-        logging.error(f"{loc}: Validation error: {ve}")
-        raise
     except Exception as e:
         logging.exception(f"{loc}: Could not send the buy order to OANDA: {e}")
         raise
@@ -231,6 +218,28 @@ async def sell_order(instrument: str, trading_type: str, **kwargs) -> dict:
         logging.exception(f"{loc}: Could not send the sell order to OANDA: {e}")
         raise
 
+async def get_account_balance(trading_type: str = "practice") -> float:
+    """Retrieve the account balance from OANDA."""
+    loc = "oanda.py:get_account_balance"
+
+    try:
+        credentials = get_credentials(trading_type)
+
+        url = f"{get_base_url(trading_type)}/v3/accounts/{credentials['account_id']}"
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {credentials['api_key']}",
+        }
+
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, headers=headers)
+            response.raise_for_status()
+            account_data = response.json()
+            return float(account_data["account"]["balance"])
+    except Exception as e:
+        logging.exception(f"{loc}: Could not retrieve account balance: {e}")
+        raise
+
 if __name__ == "__main__":
     # Set logging parameters
     logging.basicConfig(
@@ -242,22 +251,3 @@ if __name__ == "__main__":
         ]
     )
     loc = "oanda.py"
-
-    # Uncomment this bit to write all instruments and their price
-    # precision—for the given trading type—to price_precisions.json, or
-    # load them from that file if it exists
-    # logging.info("{}: {}".format(loc, json.dumps(
-    #     get_price_precisions(), indent=2, sort_keys=True)))
-
-    # Uncomment this bit to send a buy order to OANDA
-    order_response = buy_order(
-        instrument="XAU_EUR",
-        units=1, # i.e. 1 unit (bar?) of gold
-        price=1486.891,
-        trailing_stop_loss_percent=0.03, # as positive decimal
-        take_profit_percent=0.06, # as positive decimal
-        trading_type="practice"
-    )
-
-    logging.info("{}: {}".format(
-        loc, json.dumps(order_response, indent=2, sort_keys=True)))
