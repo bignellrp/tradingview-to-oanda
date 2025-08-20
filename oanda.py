@@ -111,16 +111,38 @@ async def load_price_precisions(price_precisions_file: str) -> dict:
         content = await price_precisions_json.read()
         return json.loads(content)
 
-async def buy_order(
+async def get_account_balance(trading_type: str = "practice") -> float:
+    """Retrieve the account balance from OANDA."""
+    loc = "oanda.py:get_account_balance"
+
+    try:
+        credentials = get_credentials(trading_type)
+
+        url = f"{get_base_url(trading_type)}/v3/accounts/{credentials['account_id']}"
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {credentials['api_key']}",
+        }
+
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, headers=headers)
+            response.raise_for_status()
+            account_data = response.json()
+            return float(account_data["account"]["balance"])
+    except Exception as e:
+        logging.exception(f"{loc}: Could not retrieve account balance: {e}")
+        raise
+
+async def open_long_position(
     instrument: str,
     price: float,
     stop_loss_price: float,
-    risk_percent: float = 1.0,  # Risk as a percentage of account balance
+    take_profit_price: float,
+    risk_percent: float = 1.0,
     trading_type: str = "practice",
-    **kwargs
 ) -> dict:
-    """Place a buy order on OANDA with dynamic unit calculation."""
-    loc = "oanda.py:buy_order"
+    """Open a long position on OANDA."""
+    loc = "oanda.py:open_long_position"
 
     try:
         # Retrieve account balance
@@ -151,21 +173,21 @@ async def buy_order(
 
         payload = {
             "order": {
-                "type": "LIMIT",
+                "type": "MARKET",
                 "positionFill": "DEFAULT",
-                "timeInForce": "GTD",
-                "gtdTime": get_datetime_offset(15),
                 "instrument": instrument,
                 "units": f"{units}",
-                "price": f"{price:.{price_decimals}f}",
                 "stopLossOnFill": {
                     "price": f"{stop_loss_price:.{price_decimals}f}",
+                },
+                "takeProfitOnFill": {
+                    "price": f"{take_profit_price:.{price_decimals}f}",
                 },
             }
         }
 
         if DEBUG_MODE:
-            logging.info(f"{get_datetime_now()} - BUY ORDER:\n{json.dumps(payload, indent=2)}")
+            logging.info(f"{get_datetime_now()} - OPEN LONG POSITION:\n{json.dumps(payload, indent=2)}")
             logging.info(f"{loc}: Debug mode enabled. Order logged to server.log.")
             return {"status": "debug", "message": "Order logged to server.log"}
 
@@ -181,12 +203,12 @@ async def buy_order(
             response.raise_for_status()
             return response.json()
     except Exception as e:
-        logging.exception(f"{loc}: Could not send the buy order to OANDA: {e}")
+        logging.exception(f"{loc}: Could not open long position: {e}")
         raise
 
-async def sell_order(instrument: str, trading_type: str, **kwargs) -> dict:
-    """Close a position on OANDA."""
-    loc = "oanda.py:sell_order"
+async def close_long_position(instrument: str, trading_type: str = "practice") -> dict:
+    """Close a long position on OANDA."""
+    loc = "oanda.py:close_long_position"
 
     try:
         credentials = get_credentials(trading_type)
@@ -198,8 +220,7 @@ async def sell_order(instrument: str, trading_type: str, **kwargs) -> dict:
         }
 
         if DEBUG_MODE:
-            # Log the payload to the centralized server.log
-            logging.info(f"{get_datetime_now()} - SELL ORDER:\n{json.dumps(payload, indent=2)}")
+            logging.info(f"{get_datetime_now()} - CLOSE LONG POSITION:\n{json.dumps(payload, indent=2)}")
             logging.info(f"{loc}: Debug mode enabled. Order logged to server.log.")
             return {"status": "debug", "message": "Order logged to server.log"}
 
@@ -215,29 +236,102 @@ async def sell_order(instrument: str, trading_type: str, **kwargs) -> dict:
             response.raise_for_status()
             return response.json()
     except Exception as e:
-        logging.exception(f"{loc}: Could not send the sell order to OANDA: {e}")
+        logging.exception(f"{loc}: Could not close long position: {e}")
         raise
 
-async def get_account_balance(trading_type: str = "practice") -> float:
-    """Retrieve the account balance from OANDA."""
-    loc = "oanda.py:get_account_balance"
+async def open_short_position(
+    instrument: str,
+    price: float,
+    stop_loss_price: float,
+    take_profit_price: float,
+    risk_percent: float = 1.0,
+    trading_type: str = "practice",
+) -> dict:
+    """Open a short position on OANDA."""
+    loc = "oanda.py:open_short_position"
+
+    try:
+        # Similar logic to open_long_position, but units are negative for short positions
+        account_balance = await get_account_balance(trading_type)
+        risk_amount = account_balance * (risk_percent / 100)
+        stop_loss_distance = abs(price - stop_loss_price)
+        pip_value = 0.0001 if "JPY" not in instrument else 0.01
+        units = int(risk_amount / (stop_loss_distance / pip_value)) * -1  # Negative units for short
+
+        if units >= 0:
+            raise ValueError("Calculated units are zero or positive. Check stop-loss distance and account balance.")
+
+        credentials = get_credentials(trading_type)
+        price_decimals = await get_price_precision(instrument, trading_type)
+
+        url = f"{get_base_url(trading_type)}/v3/accounts/{credentials['account_id']}/orders"
+
+        payload = {
+            "order": {
+                "type": "MARKET",
+                "positionFill": "DEFAULT",
+                "instrument": instrument,
+                "units": f"{units}",
+                "stopLossOnFill": {
+                    "price": f"{stop_loss_price:.{price_decimals}f}",
+                },
+                "takeProfitOnFill": {
+                    "price": f"{take_profit_price:.{price_decimals}f}",
+                },
+            }
+        }
+
+        if DEBUG_MODE:
+            logging.info(f"{get_datetime_now()} - OPEN SHORT POSITION:\n{json.dumps(payload, indent=2)}")
+            logging.info(f"{loc}: Debug mode enabled. Order logged to server.log.")
+            return {"status": "debug", "message": "Order logged to server.log"}
+
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                url,
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {credentials['api_key']}",
+                },
+                json=payload,
+            )
+            response.raise_for_status()
+            return response.json()
+    except Exception as e:
+        logging.exception(f"{loc}: Could not open short position: {e}")
+        raise
+
+async def close_short_position(instrument: str, trading_type: str = "practice") -> dict:
+    """Close a short position on OANDA."""
+    loc = "oanda.py:close_short_position"
 
     try:
         credentials = get_credentials(trading_type)
 
-        url = f"{get_base_url(trading_type)}/v3/accounts/{credentials['account_id']}"
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {credentials['api_key']}",
+        url = f"{get_base_url(trading_type)}/v3/accounts/{credentials['account_id']}/positions/{instrument}/close"
+
+        payload = {
+            "shortUnits": "ALL",
         }
 
+        if DEBUG_MODE:
+            logging.info(f"{get_datetime_now()} - CLOSE SHORT POSITION:\n{json.dumps(payload, indent=2)}")
+            logging.info(f"{loc}: Debug mode enabled. Order logged to server.log.")
+            return {"status": "debug", "message": "Order logged to server.log"}
+
         async with httpx.AsyncClient() as client:
-            response = await client.get(url, headers=headers)
+            response = await client.put(
+                url,
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {credentials['api_key']}",
+                },
+                json=payload,
+            )
             response.raise_for_status()
-            account_data = response.json()
-            return float(account_data["account"]["balance"])
+            return response.json()
     except Exception as e:
-        logging.exception(f"{loc}: Could not retrieve account balance: {e}")
+        logging.exception(f"{loc}: Could not close short position: {e}")
         raise
 
 if __name__ == "__main__":
