@@ -1,6 +1,8 @@
 //@version=5
 strategy("Daily Trade Strategy (Revised)", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=1)
 
+// Backtested in TradingView August 2025 over 365 days, 556 trades with a 35.25% profitable trades and a 1.305 profit factor.
+
 // === INPUTS === //
 emaFastLen    = input.int(8, title="Fast EMA")
 emaSlowLen    = input.int(21, title="Slow EMA")

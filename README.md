@@ -1,33 +1,65 @@
 # TradingView to OANDA
 
 ## Summary
-I'm setting up a bot which listens to TradingView alerts on a URL (i.e. webhook) and posts orders (and sets stop-losses, etc.) on OANDA through their API
+This is a bot which listens to TradingView alerts on a URL (i.e. webhook) and posts orders (and sets stop-losses, etc.) on OANDA through their API. It can be run on a linux vm or container but consider security, speed and resiliency as this bot deals with financial trading.
+
+---
+
+## Disclaimer
+**Use this bot at your own risk.**  
+Carefully monitor its activity, review the logs, and fully understand the code before using it with real funds. It is strongly recommended to run the bot in practice mode on a demo account for an extended period to ensure it behaves as expected. The author assumes no responsibility for any financial losses caused by the bot, whether due to bugs, trade execution failures, or flawed trading strategies.
+
+---
+
+## Key Features
+- **Position Management**: Supports opening and closing long and short positions.
+- **Dynamic Risk Management**: Automatically calculates position size (`units`) based on 1% of the account balance and the stop-loss distance.
+- **Webhook Integration**: Listens for TradingView alerts and processes them in real-time.
+- **Secure and Scalable**: Built with FastAPI for asynchronous processing and designed to run behind a reverse proxy (e.g., Nginx).
+
+---
 
 ## Things to consider
-* A sell order isn't actually handled as a sell order, but as closing all open positions for the given `instrument`.
+* A `close_long` or `close_short` order will close all open positions for the given `instrument` on the respective side (long or short).
   * Note that if this signal is sent to OANDA when the markets are closed, it will be cancelled.
-* A buy order is handled as a limit order with a Good-Til-Date 15 minutes in the future.
-  * That means that if it is sent when the markets are closed, it will most likely cancel (unless of course the markets open within those 15 minutes)
+* An `open_long` or `open_short` order is handled as a limit order with a Good-Til-Date 15 minutes in the future.
+  * That means that if it is sent when the markets are closed, it will most likely cancel (unless of course the markets open within those 15 minutes).
+
+---
 
 ## Supported parameters
 ### Required parameters
-* `action` either `buy` or `sell`
-* `ticker` a six-letter ticker without any separator (e.g. `EURUSD`)
-* `close` the price you want to buy the instrument at (ignored for sells, see [Things to consider](#things-to-consider))
+* `action`: One of the following:
+  * `open_long`: Open a long position.
+  * `close_long`: Close all long positions for the given instrument.
+  * `open_short`: Open a short position.
+  * `close_short`: Close all short positions for the given instrument.
+* `ticker`: A six-letter ticker without any separator (e.g., `EURUSD`).
+* `price`: The price you want to buy or sell the instrument at (ignored for `close_long` and `close_short` actions).
+
 ### Optional parameters and their defaults
-* `units` the size of the position to open as a positive integer, in the currency of the instrument (e.g. in Euros for "EURUSD" or gold for "XAUEUR"). Defaults to `500`
-* `trailing_stop_loss_percent` the percentage points below `close` on which to start the trailing stop loss as a positive decimal. (E.g. to set it 5% below, enter `0.05`.) Defaults to `0.01`, i.e. 1%. See [OANDA's documentation on trailing stops](https://www1.oanda.com/forex-trading/learn/capital-management/stop-loss) for more information.
-* `take_profit_percent` the percentage points above `close` to set the take profit at as a positive decimal. When the market reaches this point, the position is automatically closed. Defaults to `0.06`, i.e. 6%
-* `trading_type` either `live` or `practice`, used to select the respective API key and account ID from your `credentials.json` file. Defaults to `practice`
-Any other parameters will not be handled, but are sent along. That means you will see them in your server logs.
+* `stop_loss_price`: The absolute price at which to set the stop-loss. Required for `open_long` and `open_short`.
+* `take_profit_price`: The absolute price at which to set the take-profit. Required for `open_long` and `open_short`.
+* `trading_type`: Either `live` or `practice`, used to select the respective API key and account ID from your `credentials.json` file. Defaults to `practice`.
+
+### Ignored parameters
+* `units`: The size of the position is calculated automatically based on 1% of the account balance and the stop-loss distance. If `units` is provided in the JSON payload, it will be ignored.
+
+---
 
 ## Prerequisites
-* `pip install -r requirements.txt`
-* Oanda `credentials.json` file
-* Access token `access_token.json
-* Optional: Discord webhook for messages `discord_webhook.json`
+1. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+2. Create the following configuration files:
+   - **`credentials.json`**: Contains OANDA API keys and account IDs.
+   - **`access_token.json`**: Contains the access tokens for webhook authentication.
+   - **`discord_webhook.json`** (optional): For receiving bot notifications via Discord.
 
-## Credentials
+---
+
+## Configuration
 
 ```json
 {
@@ -51,12 +83,14 @@ The webhook is only available on `/webhook/<ACCESS_TOKEN>` where `<ACCESS_TOKEN>
 ]
 ```
 
-Make sure to replace `<ACCESS_TOKEN>` with an access token of your choice (e.g. [have DuckDuckGo generate one for you](https://duckduckgo.com/?q=password+64))
+Make sure to replace `<ACCESS_TOKEN>` with an access token of your choice (e.g. [have DuckDuckGo generate one for you](https://duckduckgo.com/?q=password+64)).
 
-Note that these are the only valid endpoints. The server won't tell you anything if you're trying to reach it somewhere else.
+Note that these are the only valid endpoints. The server won't respond to requests made to other endpoints.
 
-## Messages
-Create a [discord webhook](https://support.discord.com/hc/en-us/articles/228383668-Intro-to-Webhooks) to receive messages from trading-bot
+---
+
+### Discord Notifications (Optional)
+To receive notifications via Discord, create a [Discord webhook](https://support.discord.com/hc/en-us/articles/228383668-Intro-to-Webhooks) to receive messages from the trading bot:
 
 ```json
 {
@@ -64,9 +98,11 @@ Create a [discord webhook](https://support.discord.com/hc/en-us/articles/2283836
 }
 ```
 
+---
+
 ## Access List
-The bot has been hardcoded with the [TradingView public ips](https://www.tradingview.com/support/solutions/43000529348-about-webhooks/)
-To add additional Ips for testing create the following access_list.json
+The bot has been hardcoded with the [TradingView public IPs](https://www.tradingview.com/support/solutions/43000529348-about-webhooks/).
+To add additional IPs for testing, create the following `access_list.json` file:
 
 ```json
 [
@@ -74,27 +110,23 @@ To add additional Ips for testing create the following access_list.json
 ]
 ```
 
-## Run the server
-Server has been converted to use fast-api for async support, security and speed.
-To run the server use uvicorn:
+---
 
-(Remove the --reload in production, its used in development to autoreload after code changes)
+## Running the Server
 
-```
+### Development Mode
+To run the server in development mode with auto-reloading enabled:
+```bash
 uvicorn server:app --host 0.0.0.0 --port 8080 --reload
 ```
 
-## Optional: Run Uvicorn as a Service on Ubuntu
-To ensure your FastAPI application runs continuously and starts automatically on system boot, you can configure it as a systemd service.
+### Production Mode
+For production, remove the `--reload` flag and consider running Uvicorn as a systemd service for reliability.
 
-Create a Systemd Service File
-Create a new service file for your application:
+#### Example Systemd Service Configuration
+Create a service file at `/etc/systemd/system/tradingview-to-oanda.service`:
 
-```
-sudo vi /etc/systemd/system/tradingview-to-oanda.service
-```
-
-```
+```ini
 [Unit]
 Description=FastAPI application for TradingView to OANDA
 After=network.target
@@ -113,102 +145,132 @@ StandardError=append:/home/<YOUR_USER>/tradingview-to-oanda/server.log
 WantedBy=multi-user.target
 ```
 
-Reload the daemon and start the service.
-
-```
+Reload the daemon and start the service:
+```bash
 sudo systemctl daemon-reload
 sudo systemctl start tradingview-to-oanda
 sudo systemctl enable tradingview-to-oanda
-sudo systemctl status tradingview-to-oanda
-sudo journalctl -u tradingview-to-oanda
 ```
 
+---
 
-## Add alerts to TradingView
-1. Add an alert to whatever condition you want, for example [a custom-built `study`](https://www.tradingview.com/pine-script-docs/en/v4/annotations/Alert_conditions.html)
-1. Check the __Webhook URL__ box and paste the URL of your webhook including access token
-1. Make sure that the __Message__ is a valid JSON containing at least:
-  ```json
-  {"action":"buy","ticker":"{{ticker}}","close":{{close}}}
-  ```
-  Note:
-  * The server is built in such a way that what TradingView sends as `{{ticker}}` is translated to what OANDA expects as `instrument` and `close` is translated to `price`
-  * If you want to sell every position you have for this ticker, use "`sell`" as `action`
+## TradingView Alerts
 
-## Example alerts
+### Adding Alerts
+1. Create an alert in TradingView for your desired condition.
+2. Enable the **Webhook URL** option and paste the webhook URL, including the access token.
+3. Use a valid JSON message in the alert, such as:
 
-## Place a Buy Order
-To place a buy order, the JSON payload should include the following parameters:
+   ```json
+   {
+     "action": "open_long",
+     "ticker": "{{ticker}}",
+     "price": {{close}},
+     "stop_loss_price": 1.12000,
+     "take_profit_price": 1.13000
+   }
+   ```
 
-action: "buy"
-ticker: The instrument ticker (e.g., "XAUUSD" for gold in USD).
-price: The price at which to place the buy order.
-units: The number of units to buy.
-trailing_stop_loss_percent: The trailing stop-loss percentage (optional, defaults to 0.01).
-take_profit_percent: The take-profit percentage (optional, defaults to 0.06).
+---
 
-{{ticker}}: TradingView will replace this with the ticker of the instrument triggering the alert.
-{{close}}: TradingView will replace this with the closing price of the instrument.
+## Example Alerts
+
+### Open a Long Position
+To open a long position, the JSON payload should include the following parameters:
 
 ```json
 {
-  "action": "buy",
-  "ticker": {{ticker}},
-  "price": {{close}},
-  "units": 1,
-  "trailing_stop_loss_percent": 0.03,
-  "take_profit_percent": 0.06
-}
-```
-
-## Place a Sell Order
-To close all positions for a specific instrument (sell order), the JSON payload should include:
-
-action: "sell"
-ticker: The instrument ticker (e.g., "EURUSD" for the Euro/US Dollar pair).
-
-```json
-{
-  "action": "sell",
-  "ticker": "EURUSD"
-}
-```
-
-## Set a Stop-Loss and Take-Profit
-When placing a buy order, you can include both trailing_stop_loss_percent and take_profit_percent to automatically set stop-loss and take-profit levels.
-
-```json
-{
-  "action": "buy",
-  "ticker": "USDJPY",
-  "price": 147.754,
-  "units": 1000,
-  "trailing_stop_loss_percent": 0.02,
-  "take_profit_percent": 0.05
-}
-```
-
-Provide either 'trailing_stop_loss_percent' or 'stop_loss_price', but not both.
-
-Here is an example of the stop-loss and the take-profit set as absolute values:
-
-```json
-{
-  "action": "buy",
+  "action": "open_long",
   "ticker": "EURUSD",
   "price": 1.12345,
-  "units": 1000,
-  "stop_loss_price": 1.11000,
-  "take_profit_price": 1.15000,
+  "stop_loss_price": 1.12000,
+  "take_profit_price": 1.13000,
   "trading_type": "practice"
 }
 ```
 
-Explanation
-action: "buy" indicates a buy order.
-ticker: "EURUSD" is the instrument ticker (TradingView will send this as {{ticker}}).
-price: 1.12345 is the price at which the buy order is placed.
-units: 1000 specifies the number of units to buy.
-stop_loss_price: 1.11000 is the absolute stop-loss price.
-take_profit_price: 1.15000 is the absolute take-profit price.
-trading_type: "practice" specifies the account type (can also be "live").
+---
+
+### Close a Long Position
+To close all long positions for a specific instrument, the JSON payload should include:
+
+```json
+{
+  "action": "close_long",
+  "ticker": "EURUSD",
+  "trading_type": "practice"
+}
+```
+
+---
+
+### Open a Short Position
+To open a short position, the JSON payload should include the following parameters:
+
+```json
+{
+  "action": "open_short",
+  "ticker": "EURUSD",
+  "price": 1.12345,
+  "stop_loss_price": 1.12600,
+  "take_profit_price": 1.12000,
+  "trading_type": "practice"
+}
+```
+
+---
+
+### Close a Short Position
+To close all short positions for a specific instrument, the JSON payload should include:
+
+```json
+{
+  "action": "close_short",
+  "ticker": "EURUSD",
+  "trading_type": "practice"
+}
+```
+
+---
+
+## Units Calculation
+The size of the position (`units`) is calculated automatically based on 1% of the account balance and the stop-loss distance. This ensures consistent risk management. 
+
+If the `units` field is provided in the JSON payload, it will be ignored, and the dynamically calculated value will be used instead.
+
+---
+
+## Optional: Use with Pine Script in TradingView
+This bot can be integrated with a Pine Script strategy in TradingView to automate trade execution. The Pine Script should include a **Trade Management** section that generates alerts with correctly formatted JSON payloads for placing trades.
+
+### Steps to Set Up Alerts
+1. Reference your Pine Script strategy in TradingView.
+2. Create alerts for your desired conditions (e.g., crossover of indicators).
+3. Leave the alert body empty, as the Pine Script will generate the JSON payload dynamically.
+
+### Example Pine Script Alert
+The following Pine Script snippet demonstrates how to generate alerts with the correct JSON payload:
+
+```pine
+//@version=5
+strategy("Daily Trade Strategy", overlay=true)
+
+// Example alert for opening a long position
+if (longCondition)
+    alert('{"action":"open_long","ticker":"' + syminfo.ticker + '","price":' + str.tostring(close) +
+          ',"stop_loss_price":' + str.tostring(stopLoss) +
+          ',"take_profit_price":' + str.tostring(takeProfit) +
+          ',"trading_type":"practice"}', alert.freq_once_per_bar_close)
+```
+
+### Backtesting Results
+This strategy was backtested in TradingView in August 2025 over 365 days, resulting in:
+- **556 trades**
+- **35.25% profitable trades**
+- **1.305 profit factor**
+
+### Important Note
+Always test the bot with a **practice account** before using it with real funds to ensure it behaves as expected.
+
+---
+
