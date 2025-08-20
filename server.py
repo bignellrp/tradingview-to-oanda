@@ -232,16 +232,34 @@ async def webhook(token: str, request: Request):
     # Place order
     try:
         if post_data["action"] == "open_long":
-            order_response = await open_long_position(**oanda_parameters)
+            order_response = await open_long_position(
+                instrument=oanda_parameters["instrument"],
+                price=oanda_parameters["price"],
+                stop_loss_price=post_data["stop_loss_price"],
+                take_profit_price=post_data["take_profit_price"],
+                trading_type=oanda_parameters["trading_type"],
+            )
             alert_msg = f"✅ Opened LONG position for {oanda_parameters['instrument']}"
         elif post_data["action"] == "close_long":
-            order_response = await close_long_position(oanda_parameters["instrument"], oanda_parameters["trading_type"])
+            order_response = await close_long_position(
+                oanda_parameters["instrument"],
+                oanda_parameters["trading_type"]
+            )
             alert_msg = f"✅ Closed LONG position for {oanda_parameters['instrument']}"
         elif post_data["action"] == "open_short":
-            order_response = await open_short_position(**oanda_parameters)
+            order_response = await open_short_position(
+                instrument=oanda_parameters["instrument"],
+                price=oanda_parameters["price"],
+                stop_loss_price=post_data["stop_loss_price"],
+                take_profit_price=post_data["take_profit_price"],
+                trading_type=oanda_parameters["trading_type"],
+            )
             alert_msg = f"✅ Opened SHORT position for {oanda_parameters['instrument']}"
         elif post_data["action"] == "close_short":
-            order_response = await close_short_position(oanda_parameters["instrument"], oanda_parameters["trading_type"])
+            order_response = await close_short_position(
+                oanda_parameters["instrument"],
+                oanda_parameters["trading_type"]
+            )
             alert_msg = f"✅ Closed SHORT position for {oanda_parameters['instrument']}"
         else:
             raise ValueError("Action must be 'open_long', 'close_long', 'open_short' or 'close_short'")
