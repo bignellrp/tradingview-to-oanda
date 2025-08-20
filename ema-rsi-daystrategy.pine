@@ -28,22 +28,22 @@ shortTP   = close * (1 - tp_pct / 100)
 
 // === TRADE MANAGEMENT === //
 if (longCond)
-    if (strategy.position_size < 0)
-        alert("Close Short", alert.freq_once_per_bar_close)
+    if (strategy.position_size < 0)  // If currently in a short position, close it
+        alert('{"action":"close_short","ticker":"' + syminfo.ticker + '","trading_type":"practice"}', alert.freq_once_per_bar_close)
     strategy.entry("Long", strategy.long)
     strategy.exit("Exit Long", from_entry="Long", stop=longStop, limit=longTP)
-    alert('{"action":"buy","ticker":"' + syminfo.ticker + '","price":' + str.tostring(close, format.mintick) +
-          ',"units":1000,"stop_loss_price":' + str.tostring(longStop, format.mintick) +
+    alert('{"action":"open_long","ticker":"' + syminfo.ticker + '","price":' + str.tostring(close, format.mintick) +
+          ',"stop_loss_price":' + str.tostring(longStop, format.mintick) +
           ',"take_profit_price":' + str.tostring(longTP, format.mintick) +
           ',"trading_type":"practice"}', alert.freq_once_per_bar_close)
 
 if (shortCond)
-    if (strategy.position_size > 0)
-        alert("Close Long", alert.freq_once_per_bar_close)
+    if (strategy.position_size > 0)  // If currently in a long position, close it
+        alert('{"action":"close_long","ticker":"' + syminfo.ticker + '","trading_type":"practice"}', alert.freq_once_per_bar_close)
     strategy.entry("Short", strategy.short)
     strategy.exit("Exit Short", from_entry="Short", stop=shortStop, limit=shortTP)
-    alert('{"action":"sell","ticker":"' + syminfo.ticker + '","price":' + str.tostring(close, format.mintick) +
-          ',"units":1000,"stop_loss_price":' + str.tostring(shortStop, format.mintick) +
+    alert('{"action":"open_short","ticker":"' + syminfo.ticker + '","price":' + str.tostring(close, format.mintick) +
+          ',"stop_loss_price":' + str.tostring(shortStop, format.mintick) +
           ',"take_profit_price":' + str.tostring(shortTP, format.mintick) +
           ',"trading_type":"practice"}', alert.freq_once_per_bar_close)
 
