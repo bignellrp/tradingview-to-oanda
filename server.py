@@ -205,7 +205,7 @@ async def webhook(token: str, request: Request):
             alert_msg = f"✅ Placed BUY order: {oanda_parameters['units']} {oanda_parameters['instrument']}"
         elif post_data["action"] == "sell":
             order_response = await sell_order(**oanda_parameters)  # Ensure sell_order is async
-            alert_msg = f"✅ Placed SELL order: {oanda_parameters['instrument']}"
+            alert_msg = f"✅ Placed SELL order: {oanda_parameters['units']} {oanda_parameters['instrument']}"
         else:
             raise ValueError("Action must be 'buy' or 'sell'")
     except Exception as e:

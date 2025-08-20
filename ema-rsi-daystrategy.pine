@@ -1,6 +1,6 @@
 //@version=5
-strategy("Day Trade Strategy", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=1)
-// USDJPY 35.74% Profitable Trades over 365 Days, Profit Factor 1.325 - 19th August 2025
+strategy("Daily Trade Strategy (Revised)", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=1)
+// USDJPY 35.74% Profitable Trades over 365 Days, Profit Factor 1.325
 
 // === INPUTS === //
 emaFastLen    = input.int(8, title="Fast EMA")
