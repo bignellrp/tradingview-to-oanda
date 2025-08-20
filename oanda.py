@@ -1,8 +1,9 @@
 import datetime
 import json
 import logging
-import os.path
-import httpx  # Replaced requests with httpx for async support
+import os
+import aiofiles  # For asynchronous file I/O
+import httpx  # For asynchronous HTTP requests
 
 # Enable debug mode to log requests instead of sending them to OANDA
 DEBUG_MODE = True
@@ -77,37 +78,38 @@ async def get_instruments(trading_type: str = "practice") -> dict:
         logging.exception(f"{loc}: Could not get {trading_type} instruments from the OANDA API: {e}")
         raise
 
-def get_price_precision(instrument: str, trading_type: str = "practice") -> int:
+async def get_price_precision(instrument: str, trading_type: str = "practice") -> int:
     """Get the price precision for a given instrument."""
-    price_precisions = get_price_precisions(trading_type)
+    price_precisions = await get_price_precisions(trading_type)
     return price_precisions[instrument]
 
-def get_price_precisions(trading_type: str = "practice") -> dict:
+async def get_price_precisions(trading_type: str = "practice") -> dict:
     """Retrieve or generate price precisions for instruments."""
     price_precisions_file = "price_precisions.json"
 
     if os.path.isfile(price_precisions_file):
-        price_precisions = load_price_precisions(price_precisions_file)
+        price_precisions = await load_price_precisions(price_precisions_file)
     else:
-        price_precisions = save_price_precisions(price_precisions_file, trading_type)
+        price_precisions = await save_price_precisions(price_precisions_file, trading_type)
 
     return price_precisions
 
-def save_price_precisions(price_precisions_file: str, trading_type: str = "practice") -> dict:
+async def save_price_precisions(price_precisions_file: str, trading_type: str = "practice") -> dict:
     """Save price precisions for instruments to a file."""
-    instruments = get_instruments(trading_type)
+    instruments = await get_instruments(trading_type)
 
     price_precisions = {instrument["name"]: instrument["displayPrecision"] for instrument in instruments["instruments"]}
 
-    with open(price_precisions_file, "w") as price_precisions_json:
-        json.dump(price_precisions, price_precisions_json, indent=2, sort_keys=True)
+    async with aiofiles.open(price_precisions_file, "w") as price_precisions_json:
+        await price_precisions_json.write(json.dumps(price_precisions, indent=2, sort_keys=True))
 
     return price_precisions
 
-def load_price_precisions(price_precisions_file: str) -> dict:
+async def load_price_precisions(price_precisions_file: str) -> dict:
     """Load price precisions for instruments from a file."""
-    with open(price_precisions_file) as price_precisions_json:
-        return json.load(price_precisions_json)
+    async with aiofiles.open(price_precisions_file, "r") as price_precisions_json:
+        content = await price_precisions_json.read()
+        return json.loads(content)
 
 async def buy_order(
     instrument: str,
@@ -143,7 +145,7 @@ async def buy_order(
             raise ValueError("Calculated units are zero or negative. Check stop-loss distance and account balance.")
 
         credentials = get_credentials(trading_type)
-        price_decimals = get_price_precision(instrument, trading_type)
+        price_decimals = await get_price_precision(instrument, trading_type)
 
         url = f"{get_base_url(trading_type)}/v3/accounts/{credentials['account_id']}/orders"
 
@@ -249,22 +251,3 @@ if __name__ == "__main__":
         ]
     )
     loc = "oanda.py"
-
-    # Uncomment this bit to write all instruments and their price
-    # precision—for the given trading type—to price_precisions.json, or
-    # load them from that file if it exists
-    # logging.info("{}: {}".format(loc, json.dumps(
-    #     get_price_precisions(), indent=2, sort_keys=True)))
-
-    # Uncomment this bit to send a buy order to OANDA
-    order_response = buy_order(
-        instrument="XAU_EUR",
-        units=1, # i.e. 1 unit (bar?) of gold
-        price=1486.891,
-        trailing_stop_loss_percent=0.03, # as positive decimal
-        take_profit_percent=0.06, # as positive decimal
-        trading_type="practice"
-    )
-
-    logging.info("{}: {}".format(
-        loc, json.dumps(order_response, indent=2, sort_keys=True)))
