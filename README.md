@@ -274,3 +274,68 @@ Always test the bot with a **practice account** before using it with real funds 
 
 ---
 
+## Optional: Logging Trades to Google Sheets
+
+The bot supports logging trades to a Google Spreadsheet using the Google Sheets API. This feature is optional. If the required `service_account.json` file is missing, the bot will automatically log trades to `server.log` instead.
+
+### Steps to Set Up Google Sheets Logging
+
+1. **Enable the Google Sheets API**:
+   - Go to the [Google Cloud Console](https://console.cloud.google.com/).
+   - Create a new project (or use an existing one).
+   - Navigate to **APIs & Services > Library**.
+   - Search for **Google Sheets API** and **Google Drive API**, and enable both for your project.
+
+2. **Create a Service Account**:
+   - Go to **APIs & Services > Credentials**.
+   - Click **Create Credentials > Service Account**.
+   - Provide a name for the service account and click **Create and Continue**.
+   - Assign the role **Editor** (or higher) to the service account and click **Done**.
+
+3. **Download the Service Account Key**:
+   - After creating the service account, go to the **Keys** section.
+   - Click **Add Key > Create New Key** and select **JSON**.
+   - Download the JSON key file and save it as `service_account.json` in the root directory of your project.
+
+4. **Share the Spreadsheet with the Service Account**:
+   - Create a new Google Spreadsheet (e.g., `Trading Log`) or use an existing one.
+   - Share the spreadsheet with the service account email (found in the `client_email` field of the `service_account.json` file).
+   - Grant **Editor** access to the service account.
+
+5. **Configure the Spreadsheet in the Bot**:
+   - Open the `gspread.py` file.
+   - Update the `SPREADSHEET_NAME` and `WORKSHEET_NAME` variables to match your spreadsheet and worksheet names:
+     ```python
+     SPREADSHEET_NAME = "Trading Log"  # Replace with your spreadsheet name
+     WORKSHEET_NAME = "Trades"  # Replace with your worksheet name
+     ```
+
+6. **Set Up the Worksheet**:
+   - Add the following headers to the first row of the worksheet:
+     - `Timestamp`
+     - `Action`
+     - `Instrument`
+     - `Price`
+     - `Stop Loss Price`
+     - `Take Profit Price`
+     - `Units`
+     - `Trading Type`
+     - `Status`
+     - `Account Balance`
+
+### How It Works
+- If the `service_account.json` file is present and correctly configured, the bot will log each trade to the specified Google Spreadsheet.
+- If the `service_account.json` file is missing, the bot will log trades to `server.log` instead. This ensures that no trade information is lost.
+
+### Account Balance Logging
+The bot retrieves the current account balance from OANDA and logs it alongside each trade. This provides a clear record of the account's financial state at the time of each trade.
+
+### Example Log Entry in Google Sheets
+| Timestamp           | Action      | Instrument | Price   | Stop Loss Price | Take Profit Price | Units | Trading Type | Status   | Account Balance |
+|---------------------|-------------|------------|---------|-----------------|-------------------|-------|--------------|----------|-----------------|
+| 2025-08-21 12:34:56 | open_long   | EUR_USD    | 1.12345 | 1.12000         | 1.13000           | 1000  | practice     | success  | 100000.50       |
+
+---
+
+Let me know if you need further clarification
+
