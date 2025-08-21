@@ -335,13 +335,4 @@ async def close_short_position(instrument: str, trading_type: str = "practice") 
         raise
 
 if __name__ == "__main__":
-    # Set logging parameters
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(levelname)s - %(message)s",
-        handlers=[
-            logging.FileHandler("server.log"),
-            logging.StreamHandler()
-        ]
-    )
     loc = "oanda.py"

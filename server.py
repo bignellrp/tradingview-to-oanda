@@ -12,6 +12,7 @@ from oanda import (
     open_short_position,
     close_short_position,
 )
+from gspread import log_trade  # Import the log_trade function
 import os
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
@@ -231,6 +232,9 @@ async def webhook(token: str, request: Request):
 
     # Place order
     try:
+        # Retrieve the account balance
+        account_balance = await get_account_balance(oanda_parameters["trading_type"])
+
         if post_data["action"] == "open_long":
             order_response = await open_long_position(
                 instrument=oanda_parameters["instrument"],
@@ -240,12 +244,34 @@ async def webhook(token: str, request: Request):
                 trading_type=oanda_parameters["trading_type"],
             )
             alert_msg = f"✅ Opened LONG position for {oanda_parameters['instrument']}"
+            log_trade(
+                action="open_long",
+                instrument=oanda_parameters["instrument"],
+                price=oanda_parameters["price"],
+                stop_loss_price=post_data["stop_loss_price"],
+                take_profit_price=post_data["take_profit_price"],
+                units=oanda_parameters["units"],
+                trading_type=oanda_parameters["trading_type"],
+                status="success",
+                account_balance=account_balance,  # Include account balance
+            )
         elif post_data["action"] == "close_long":
             order_response = await close_long_position(
                 oanda_parameters["instrument"],
                 oanda_parameters["trading_type"]
             )
             alert_msg = f"✅ Closed LONG position for {oanda_parameters['instrument']}"
+            log_trade(
+                action="close_long",
+                instrument=oanda_parameters["instrument"],
+                price=None,
+                stop_loss_price=None,
+                take_profit_price=None,
+                units=None,
+                trading_type=oanda_parameters["trading_type"],
+                status="success",
+                account_balance=account_balance,  # Include account balance
+            )
         elif post_data["action"] == "open_short":
             order_response = await open_short_position(
                 instrument=oanda_parameters["instrument"],
@@ -255,12 +281,34 @@ async def webhook(token: str, request: Request):
                 trading_type=oanda_parameters["trading_type"],
             )
             alert_msg = f"✅ Opened SHORT position for {oanda_parameters['instrument']}"
+            log_trade(
+                action="open_short",
+                instrument=oanda_parameters["instrument"],
+                price=oanda_parameters["price"],
+                stop_loss_price=post_data["stop_loss_price"],
+                take_profit_price=post_data["take_profit_price"],
+                units=oanda_parameters["units"],
+                trading_type=oanda_parameters["trading_type"],
+                status="success",
+                account_balance=account_balance,  # Include account balance
+            )
         elif post_data["action"] == "close_short":
             order_response = await close_short_position(
                 oanda_parameters["instrument"],
                 oanda_parameters["trading_type"]
             )
             alert_msg = f"✅ Closed SHORT position for {oanda_parameters['instrument']}"
+            log_trade(
+                action="close_short",
+                instrument=oanda_parameters["instrument"],
+                price=None,
+                stop_loss_price=None,
+                take_profit_price=None,
+                units=None,
+                trading_type=oanda_parameters["trading_type"],
+                status="success",
+                account_balance=account_balance,  # Include account balance
+            )
         else:
             raise ValueError("Action must be 'open_long', 'close_long', 'open_short' or 'close_short'")
     except Exception as e:
@@ -268,6 +316,17 @@ async def webhook(token: str, request: Request):
         logging.exception(msg)
         local_log.add(msg)
         send_discord_alert(f"❌ OANDA Order Error:\n```\n{msg}\n```")
+        log_trade(
+            action=post_data["action"],
+            instrument=oanda_parameters.get("instrument"),
+            price=oanda_parameters.get("price"),
+            stop_loss_price=post_data.get("stop_loss_price"),
+            take_profit_price=post_data.get("take_profit_price"),
+            units=oanda_parameters.get("units"),
+            trading_type=oanda_parameters.get("trading_type"),
+            status="error",
+            account_balance=None,  # Log None if an error occurs
+        )
         raise HTTPException(status_code=500, detail=str(local_log))
 
     local_log.add("Order sent successfully")
