@@ -218,6 +218,16 @@ async def webhook(token: str, request: Request):
 
     local_log.add(f"Received valid JSON:\n{json.dumps(post_data, indent=2)}")
 
+    # Extract and verify ID
+    id_number = post_data.get("id")
+    if not id_number:
+        msg = "Missing 'id' in JSON payload."
+        logging.error(msg)
+        local_log.add(msg)
+        raise HTTPException(status_code=400, detail=msg)
+
+    local_log.add(f"ID number: {id_number}")
+
     # Translate & fill defaults
     try:
         oanda_parameters = await post_data_to_oanda_parameters(post_data)  # Updated to await
@@ -254,6 +264,7 @@ async def webhook(token: str, request: Request):
                 trading_type=oanda_parameters["trading_type"],
                 status="success",
                 account_balance=account_balance,  # Include account balance
+                id_number=id_number,  # Include ID number
             )
         elif post_data["action"] == "close_long":
             order_response = await close_long_position(
@@ -271,6 +282,7 @@ async def webhook(token: str, request: Request):
                 trading_type=oanda_parameters["trading_type"],
                 status="success",
                 account_balance=account_balance,  # Include account balance
+                id_number=id_number,  # Include ID number
             )
         elif post_data["action"] == "open_short":
             order_response = await open_short_position(
@@ -291,6 +303,7 @@ async def webhook(token: str, request: Request):
                 trading_type=oanda_parameters["trading_type"],
                 status="success",
                 account_balance=account_balance,  # Include account balance
+                id_number=id_number,  # Include ID number
             )
         elif post_data["action"] == "close_short":
             order_response = await close_short_position(
@@ -308,6 +321,7 @@ async def webhook(token: str, request: Request):
                 trading_type=oanda_parameters["trading_type"],
                 status="success",
                 account_balance=account_balance,  # Include account balance
+                id_number=id_number,  # Include ID number
             )
         else:
             raise ValueError("Action must be 'open_long', 'close_long', 'open_short' or 'close_short'")
@@ -326,6 +340,7 @@ async def webhook(token: str, request: Request):
             trading_type=oanda_parameters.get("trading_type"),
             status="error",
             account_balance=None,  # Log None if an error occurs
+            id_number=id_number,  # Include ID number
         )
         raise HTTPException(status_code=500, detail=str(local_log))
 
