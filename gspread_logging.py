@@ -3,7 +3,7 @@ from datetime import datetime
 import logging
 
 # Google Sheets configuration
-SPREADSHEET_NAME = "Trading Log"  # Replace with the name of your spreadsheet
+SPREADSHEET_NAME = "TradingBot 2025"  # Replace with the name of your spreadsheet
 WORKSHEET_NAME = "Trades"  # Replace with the name of your worksheet
 
 # Path to your service account JSON key file
