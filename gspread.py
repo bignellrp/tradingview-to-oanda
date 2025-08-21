@@ -13,12 +13,8 @@ SERVICE_ACCOUNT_FILE = "service_account.json"  # Replace with the path to your J
 def get_google_sheet():
     """Authenticate and return the Google Sheet."""
     try:
-        # Define the scope for Google Sheets and Drive APIs
-        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-
         # Authenticate using the service account JSON key file
-        credentials = ServiceAccountCredentials.from_json_keyfile_name(SERVICE_ACCOUNT_FILE, scope)
-        client = gspread.authorize(credentials)
+        client = gspread.service_account(filename=SERVICE_ACCOUNT_FILE)
 
         # Open the spreadsheet
         spreadsheet = client.open(SPREADSHEET_NAME)

@@ -145,26 +145,14 @@ async def open_long_position(
     loc = "oanda.py:open_long_position"
 
     try:
-        # Retrieve account balance
-        account_balance = await get_account_balance(trading_type)
-
-        # Calculate risk amount (1% of account balance)
-        risk_amount = account_balance * (risk_percent / 100)
-
-        # Calculate stop-loss distance
-        stop_loss_distance = abs(price - stop_loss_price)
-
-        # Get pip value and calculate units
-        pip_value = 0.0001  # Default pip value for most forex pairs
-        if "JPY" in instrument:  # Adjust pip value for JPY pairs
-            pip_value = 0.01
-
         # Calculate the number of units to trade
-        units = int(risk_amount / (stop_loss_distance / pip_value))
-
-        # Ensure units are positive
-        if units <= 0:
-            raise ValueError("Calculated units are zero or negative. Check stop-loss distance and account balance.")
+        units = await calculate_units(
+            instrument=instrument,
+            price=price,
+            stop_loss_price=stop_loss_price,
+            risk_percent=risk_percent,
+            trading_type=trading_type,
+        )
 
         credentials = get_credentials(trading_type)
         price_decimals = await get_price_precision(instrument, trading_type)
@@ -247,25 +235,40 @@ async def open_short_position(
     risk_percent: float = 1.0,
     trading_type: str = "practice",
 ) -> dict:
-    """Open a short position on OANDA."""
+    """
+    Open a short position on OANDA.
+
+    Args:
+        instrument (str): The trading instrument (e.g., "EUR_USD", "GBP_JPY").
+        price (float): The entry price.
+        stop_loss_price (float): The stop-loss price.
+        take_profit_price (float): The take-profit price.
+        risk_percent (float): The percentage of account balance to risk.
+        trading_type (str): The trading type, either "practice" or "live".
+
+    Returns:
+        dict: The response from the OANDA API.
+    """
     loc = "oanda.py:open_short_position"
 
     try:
-        # Similar logic to open_long_position, but units are negative for short positions
-        account_balance = await get_account_balance(trading_type)
-        risk_amount = account_balance * (risk_percent / 100)
-        stop_loss_distance = abs(price - stop_loss_price)
-        pip_value = 0.0001 if "JPY" not in instrument else 0.01
-        units = int(risk_amount / (stop_loss_distance / pip_value)) * -1  # Negative units for short
+        # Calculate the number of units to trade (negative for short positions)
+        units = -await calculate_units(
+            instrument=instrument,
+            price=price,
+            stop_loss_price=stop_loss_price,
+            risk_percent=risk_percent,
+            trading_type=trading_type,
+        )
 
-        if units >= 0:
-            raise ValueError("Calculated units are zero or positive. Check stop-loss distance and account balance.")
-
+        # Retrieve credentials and price precision
         credentials = get_credentials(trading_type)
         price_decimals = await get_price_precision(instrument, trading_type)
 
+        # Construct the API URL
         url = f"{get_base_url(trading_type)}/v3/accounts/{credentials['account_id']}/orders"
 
+        # Construct the payload for the API request
         payload = {
             "order": {
                 "type": "MARKET",
@@ -281,11 +284,13 @@ async def open_short_position(
             }
         }
 
+        # Debug mode: Log the payload instead of sending the request
         if DEBUG_MODE:
             logging.info(f"{get_datetime_now()} - OPEN SHORT POSITION:\n{json.dumps(payload, indent=2)}")
             logging.info(f"{loc}: Debug mode enabled. Order logged to server.log.")
             return {"status": "debug", "message": "Order logged to server.log"}
 
+        # Send the API request
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 url,
@@ -334,5 +339,116 @@ async def close_short_position(instrument: str, trading_type: str = "practice") 
         logging.exception(f"{loc}: Could not close short position: {e}")
         raise
 
-if __name__ == "__main__":
-    loc = "oanda.py"
+async def calculate_units(
+    instrument: str,
+    price: float,
+    stop_loss_price: float,
+    risk_percent: float,
+    trading_type: str = "practice"
+) -> int:
+    """
+    Calculate the number of units to trade based on risk management.
+
+    Args:
+        instrument (str): The trading instrument (e.g., "EUR_USD", "GBP_JPY").
+        price (float): The entry price.
+        stop_loss_price (float): The stop-loss price.
+        risk_percent (float): The percentage of account balance to risk.
+        trading_type (str): The trading type, either "practice" or "live".
+
+    Returns:
+        int: The number of units to trade.
+    """
+    loc = "oanda.py:calculate_units"
+
+    try:
+        # Retrieve account balance
+        account_balance = await get_account_balance(trading_type)
+
+        # Calculate risk amount (e.g., 1% of account balance)
+        risk_amount = account_balance * (risk_percent / 100)
+
+        # Calculate stop-loss distance
+        stop_loss_distance = abs(price - stop_loss_price)
+
+        # Determine pip value
+        pip_value = 0.0001 if "JPY" not in instrument else 0.01
+
+        # Get the quote currency from the instrument (e.g., "USD" from "EUR_USD")
+        quote_currency = instrument.split("_")[1]
+
+        # Get the exchange rate for GBP/QUOTE
+        exchange_rate = await get_gbp_exchange_rate(quote_currency, trading_type)
+
+        # Adjust pip value for GBP
+        if "JPY" in instrument:
+            pip_value_in_gbp = pip_value * exchange_rate
+        else:
+            pip_value_in_gbp = pip_value / exchange_rate
+
+        # Calculate the number of units
+        units = int(risk_amount / (stop_loss_distance / pip_value_in_gbp))
+
+        # Ensure units are positive
+        if units <= 0:
+            raise ValueError("Calculated units are zero or negative. Check stop-loss distance and account balance.")
+
+        return units
+    except Exception as e:
+        logging.exception(f"{loc}: Could not calculate units: {e}")
+        raise
+
+async def get_gbp_exchange_rate(quote_currency: str, trading_type: str = "practice") -> float:
+    """
+    Retrieve the midpoint exchange rate for GBP/QUOTE using OANDA's Pricing API.
+
+    Args:
+        quote_currency (str): The quote currency (e.g., "JPY" from "GBP_JPY").
+        trading_type (str): The trading type, either "practice" or "live".
+
+    Returns:
+        float: The midpoint exchange rate for GBP/QUOTE.
+
+    Raises:
+        ValueError: If the instrument is not found in the pricing data.
+        Exception: If there is an error retrieving the exchange rate.
+    """
+    loc = "oanda.py:get_gbp_exchange_rate"
+
+    try:
+        # Construct the instrument (e.g., GBP_JPY)
+        instrument = f"GBP_{quote_currency}"
+
+        # Retrieve credentials
+        credentials = get_credentials(trading_type)
+
+        # OANDA Pricing API URL
+        url = f"{get_base_url(trading_type)}/v3/accounts/{credentials['account_id']}/pricing"
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {credentials['api_key']}",
+        }
+        params = {
+            "instruments": instrument  # e.g., "GBP_JPY"
+        }
+
+        # Make the API request
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, headers=headers, params=params)
+            response.raise_for_status()
+            pricing_data = response.json()
+
+            # Extract the midpoint price (average of bid and ask)
+            prices = pricing_data["prices"]
+            for price_data in prices:
+                if price_data["instrument"] == instrument:
+                    bid = float(price_data["bids"][0]["price"])
+                    ask = float(price_data["asks"][0]["price"])
+                    midpoint = (bid + ask) / 2
+                    return midpoint
+
+            # If the instrument is not found in the response
+            raise ValueError(f"Instrument {instrument} not found in pricing data.")
+    except Exception as e:
+        logging.exception(f"{loc}: Could not retrieve exchange rate for GBP/{quote_currency}: {e}")
+        raise
