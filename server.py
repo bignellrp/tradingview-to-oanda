@@ -12,7 +12,7 @@ from oanda import (
     open_short_position,
     close_short_position,
 )
-from gspread import log_trade  # Import the log_trade function
+from gspread_logging import log_trade  # Import the log_trade function
 import os
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
