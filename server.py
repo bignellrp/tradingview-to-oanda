@@ -113,14 +113,15 @@ class Log:
         self.content += f"{get_datetime_now()}: {message}"
 
 # Logging
-logging.basicConfig(
-    level=logging.INFO,  # Set the logging level
-    format="%(asctime)s - %(levelname)s - %(message)s",  # Log format
-    handlers=[
-        logging.FileHandler("server.log"),  # Log to a file named 'server.log'
-        logging.StreamHandler()  # Also log to the console
-    ]
-)
+# Uncomment this section if you havent set fastapi to log to file in your uvicorn config.
+# logging.basicConfig(
+    # level=logging.INFO,  # Set the logging level
+    # format="%(asctime)s - %(levelname)s - %(message)s",  # Log format
+    # handlers=[
+        # logging.FileHandler("server.log"),  # Log to a file named 'server.log'
+        # logging.StreamHandler()  # Also log to the console
+    # ]
+# )
 
 # Access tokens
 try:
