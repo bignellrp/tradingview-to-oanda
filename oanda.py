@@ -139,7 +139,8 @@ async def get_account_balance(trading_type: str = "practice") -> dict:
 
             # Extract balance and leverage
             balance = float(account_data["account"]["balance"])
-            leverage = int(account_data["account"]["marginRate"])  # Leverage is typically provided as a margin rate (e.g., 0.02 for 50:1)
+            margin_rate = float(account_data["account"]["marginRate"])  # Margin rate is in decimal format
+            leverage = int(1 / margin_rate)  # Calculate leverage ratio (e.g., 1 / 0.03333333333333 = 30)
 
             return {
                 "balance": balance,
