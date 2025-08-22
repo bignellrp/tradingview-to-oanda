@@ -119,7 +119,7 @@ async def get_account_balance(trading_type: str = "practice") -> dict:
         trading_type (str): The trading type, either "practice" or "live".
 
     Returns:
-        dict: A dictionary containing the account balance and leverage.
+        dict: A dictionary containing the account balance, leverage, and currency.
     """
     loc = "oanda.py:get_account_balance"
 
@@ -137,14 +137,22 @@ async def get_account_balance(trading_type: str = "practice") -> dict:
             response.raise_for_status()
             account_data = response.json()
 
-            # Extract balance and leverage
+            # Debug log the full response for troubleshooting
+            logging.debug(f"{loc}: API response: {json.dumps(account_data, indent=2)}")
+
+            # Extract balance, leverage, and currency
             balance = float(account_data["account"]["balance"])
             margin_rate = float(account_data["account"]["marginRate"])  # Margin rate is in decimal format
             leverage = int(1 / margin_rate)  # Calculate leverage ratio (e.g., 1 / 0.03333333333333 = 30)
+            currency = account_data["account"].get("currency")  # Safely retrieve currency
+
+            if not currency:
+                raise ValueError(f"{loc}: 'currency' field is missing in the API response.")
 
             return {
                 "balance": balance,
                 "leverage": leverage,
+                "currency": currency,
             }
     except Exception as e:
         logging.exception(f"{loc}: Could not retrieve account balance: {e}")
