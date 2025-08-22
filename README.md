@@ -322,21 +322,25 @@ The bot supports logging trades to a Google Spreadsheet using the Google Sheets 
      - `Trading Type`
      - `Status`
      - `Account Balance`
-     - 'ID'
+     - `ID`
+     - `Margin`
+     - `Risk`
+     - `Pip Value`
+     - `Trade Value`
+     - `Reward`
+
+---
+
+### Example Log Entry in Google Sheets
+| Timestamp           | Action      | Instrument | Price   | Stop Loss Price | Take Profit Price | Units | Trading Type | Status   | Account Balance | ID     | Margin   | Risk     | Pip Value | Trade Value | Reward   |
+|---------------------|-------------|------------|---------|-----------------|-------------------|-------|--------------|----------|-----------------|--------|----------|----------|-----------|-------------|----------|
+| 2025-08-21 12:34:56 | open_long   | EUR_USD    | 1.12345 | 1.12000         | 1.13000           | 1000  | practice     | success  | 100000.50       | 123456 | 5000.00  | 1000.00  | 0.10      | 1123.45     | 300.00   |
+
+---
 
 ### How It Works
 - If the `service_account.json` file is present and correctly configured, the bot will log each trade to the specified Google Spreadsheet.
 - If the `service_account.json` file is missing, the bot will log trades to `server.log` instead. This ensures that no trade information is lost.
 
-### Account Balance Logging
-The bot retrieves the current account balance from OANDA and logs it alongside each trade. This provides a clear record of the account's financial state at the time of each trade.
-
-### Example Log Entry in Google Sheets
-| Timestamp           | Action      | Instrument | Price   | Stop Loss Price | Take Profit Price | Units | Trading Type | Status   | Account Balance |
-|---------------------|-------------|------------|---------|-----------------|-------------------|-------|--------------|----------|-----------------|
-| 2025-08-21 12:34:56 | open_long   | EUR_USD    | 1.12345 | 1.12000         | 1.13000           | 1000  | practice     | success  | 100000.50       |
-
----
-
-Let me know if you need further clarification
+Let me know if
 
