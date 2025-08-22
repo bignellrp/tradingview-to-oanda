@@ -29,7 +29,7 @@ def get_google_sheet():
         logging.error(f"Error accessing Google Sheet: {e}")
         return None
 
-def log_trade(action, instrument, price, stop_loss_price, take_profit_price, units, trading_type, status, account_balance=None, id_number=None):
+def log_trade(action, instrument, price, stop_loss_price, take_profit_price, units, trading_type, status, account_balance=None, id_number=None, margin_gbp=None, pip_value_gbp=None, trade_value_gbp=None, reward_gbp=None, risk_gbp=None):
     """Log a trade to the Google Spreadsheet or fallback to local logging."""
     try:
         # Get the worksheet
@@ -48,6 +48,11 @@ def log_trade(action, instrument, price, stop_loss_price, take_profit_price, uni
             status,  # Status (e.g., success or error)
             account_balance,  # Account balance
             id_number,  # ID number
+            margin_gbp,  # Margin in GBP
+            pip_value_gbp,  # Pip value in GBP
+            trade_value_gbp,  # Trade value in GBP
+            reward_gbp,  # Reward in GBP
+            risk_gbp,  # Risk in GBP
         ]
 
         if worksheet:
