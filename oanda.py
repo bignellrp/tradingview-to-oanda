@@ -137,7 +137,7 @@ async def open_long_position(
     instrument: str,
     price: float,
     stop_loss_price: float,
-    take_profit_price: float,
+    take_profit_price: float,  # Ensure this argument is included
     risk_percent: float = 1.0,
     trading_type: str = "practice",
 ) -> dict:
@@ -146,13 +146,15 @@ async def open_long_position(
 
     try:
         # Calculate the number of units to trade
-        units = await calculate_units(
+        trade_details = await calculate_units(
             instrument=instrument,
             price=price,
             stop_loss_price=stop_loss_price,
+            take_profit_price=take_profit_price,  # Pass the missing argument
             risk_percent=risk_percent,
             trading_type=trading_type,
         )
+        units = trade_details["units"]
 
         credentials = get_credentials(trading_type)
         price_decimals = await get_price_precision(instrument, trading_type)
@@ -257,6 +259,7 @@ async def open_short_position(
             instrument=instrument,
             price=price,
             stop_loss_price=stop_loss_price,
+            take_profit_price=take_profit_price,  # Pass the missing argument
             risk_percent=risk_percent,
             trading_type=trading_type,
         )
