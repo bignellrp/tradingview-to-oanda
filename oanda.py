@@ -254,21 +254,22 @@ async def open_short_position(
     loc = "oanda.py:open_short_position"
 
     try:
-        # Calculate the number of units to trade (negative for short positions)
-        units = -await calculate_units(
+        # Calculate the number of units to trade
+        trade_details = await calculate_units(
             instrument=instrument,
             price=price,
             stop_loss_price=stop_loss_price,
-            take_profit_price=take_profit_price,  # Pass the missing argument
+            take_profit_price=take_profit_price,
             risk_percent=risk_percent,
             trading_type=trading_type,
         )
+        units = -trade_details["units"]  # Negate only the units value for short positions
 
         # Retrieve credentials and price precision
         credentials = get_credentials(trading_type)
         price_decimals = await get_price_precision(instrument, trading_type)
 
-        # Construct the API URL
+        # Construct the API url
         url = f"{get_base_url(trading_type)}/v3/accounts/{credentials['account_id']}/orders"
 
         # Construct the payload for the API request
@@ -364,7 +365,7 @@ async def calculate_units(
         leverage (int): The leverage ratio (default is 50:1).
 
     Returns:
-        dict: A dictionary containing units, margin, pip value, trade value, reward, and risk.
+        dict: A dictionary containing units, margin, pip value, trade value, reward, risk, and account balance.
     """
     loc = "oanda.py:calculate_units"
 
@@ -419,6 +420,7 @@ async def calculate_units(
             "trade_value_gbp": trade_value_gbp,
             "reward_gbp": reward_gbp,
             "risk_gbp": risk_gbp,
+            "account_balance": account_balance,  # Include account balance
         }
     except Exception as e:
         logging.exception(f"{loc}: Could not calculate units: {e}")
