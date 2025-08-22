@@ -3,7 +3,6 @@ from json.decoder import JSONDecodeError
 import logging
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
-import requests
 from oanda import (
     get_datetime_now,
     get_account_balance,
@@ -17,33 +16,12 @@ from gspread_logging import log_trade  # Import the log_trade function
 import os
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
+from discord_webhook import send_discord_alert  # Import the send_discord_alert function
 
 # Initialize FastAPI app
 app = FastAPI()
 
-# Load Discord webhook URL from file
-try:
-    with open("discord_webhook.json") as f:
-        webhook_data = json.load(f)
-        DISCORD_WEBHOOK_URL = webhook_data.get("url")
-        if not DISCORD_WEBHOOK_URL:
-            raise ValueError("Webhook URL is missing or empty")
-except (FileNotFoundError, KeyError, JSONDecodeError, ValueError):
-    DISCORD_WEBHOOK_URL = None
-    logging.warning("Discord webhook URL not found or invalid — alerts will not be sent")
-
-def send_discord_alert(message: str):
-    """Send a message to the configured Discord webhook."""
-    if not DISCORD_WEBHOOK_URL:
-        logging.info("Discord webhook is not configured, skipping alert")
-        return
-    try:
-        payload = {"content": message}
-        r = requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=5)
-        r.raise_for_status()
-    except Exception as e:
-        logging.error(f"Failed to send Discord alert: {e}")
-
+# Translate and fill defaults for OANDA API
 def fill_defaults(post_data: dict):
     try:
         instrument = post_data["instrument"]
@@ -61,6 +39,7 @@ def fill_defaults(post_data: dict):
         "trading_type": post_data.get("trading_type", "practice"),
     }
 
+# Translate and fill defaults for OANDA API
 def translate(post_data: dict):
     ticker = post_data.pop("ticker", None)
     if not ticker or len(ticker) != 6:
@@ -68,6 +47,7 @@ def translate(post_data: dict):
     post_data["instrument"] = f"{ticker[:3]}_{ticker[3:]}"
     return post_data
 
+# Translate and fill defaults for OANDA API
 async def post_data_to_oanda_parameters(post_data: dict):
     """Translate and fill defaults, including dynamic unit calculation."""
     translated_data = translate(post_data)
@@ -89,26 +69,6 @@ async def post_data_to_oanda_parameters(post_data: dict):
         raise HTTPException(status_code=400, detail=f"Error calculating trade details: {e}")
 
     return filled_data
-
-class Log:
-    def __init__(self):
-        self.content = ""
-    def __str__(self):
-        return str(self.content)
-    def add(self, message: str):
-        if self.content:
-            self.content += "\n"
-        self.content += f"{get_datetime_now()}: {message}"
-
-# Logging
-logging.basicConfig(
-    level=logging.INFO,  # Set the logging level
-    format="%(asctime)s - %(levelname)s - %(message)s",  # Log format
-    handlers=[
-        logging.FileHandler("server.log"),  # Log to a file named 'server.log'
-        logging.StreamHandler()  # Also log to the console
-    ]
-)
 
 # Access tokens
 try:
@@ -171,6 +131,7 @@ class RestrictAccessMiddleware(BaseHTTPMiddleware):
 # Add the middleware to the FastAPI app
 app.add_middleware(RestrictAccessMiddleware)
 
+# Webhook endpoint
 @app.post("/webhook/{token}")
 async def webhook(token: str, request: Request):
     if token not in access_token:
@@ -269,11 +230,11 @@ async def webhook(token: str, request: Request):
                 status="success",
                 account_balance=await get_account_balance(oanda_parameters["trading_type"]),
                 id_number=id_number,
-                margin_gbp=trade_details["margin_gbp"],
-                pip_value_gbp=trade_details["pip_value_gbp"],
-                trade_value_gbp=trade_details["trade_value_gbp"],
-                reward_gbp=trade_details["reward_gbp"],
-                risk_gbp=trade_details["risk_gbp"],
+                margin=trade_details["margin"],
+                pip_value=trade_details["pip_value"],
+                trade_value=trade_details["trade_value"],
+                reward=trade_details["reward"],
+                risk=trade_details["risk"],
             )
         elif post_data["action"] == "close_long":
             order_response = await close_long_position(
@@ -313,11 +274,11 @@ async def webhook(token: str, request: Request):
                 status="success",
                 account_balance=await get_account_balance(oanda_parameters["trading_type"]),
                 id_number=id_number,
-                margin_gbp=trade_details["margin_gbp"],
-                pip_value_gbp=trade_details["pip_value_gbp"],
-                trade_value_gbp=trade_details["trade_value_gbp"],
-                reward_gbp=trade_details["reward_gbp"],
-                risk_gbp=trade_details["risk_gbp"],
+                margin=trade_details["margin"],
+                pip_value=trade_details["pip_value"],
+                trade_value=trade_details["trade_value"],
+                reward=trade_details["reward"],
+                risk=trade_details["risk"],
             )
         elif post_data["action"] == "close_short":
             order_response = await close_short_position(
@@ -355,11 +316,11 @@ async def webhook(token: str, request: Request):
             status="error",
             account_balance=None,  # Log None if an error occurs
             id_number=id_number,
-            margin_gbp=trade_details["margin_gbp"],
-            pip_value_gbp=trade_details["pip_value_gbp"],
-            trade_value_gbp=trade_details["trade_value_gbp"],
-            reward_gbp=trade_details["reward_gbp"],
-            risk_gbp=trade_details["risk_gbp"],
+            margin=trade_details["margin"],
+            pip_value=trade_details["pip_value"],
+            trade_value=trade_details["trade_value"],
+            reward=trade_details["reward"],
+            risk=trade_details["risk"],
         )
         raise HTTPException(status_code=500, detail=str(local_log))
 
@@ -368,3 +329,23 @@ async def webhook(token: str, request: Request):
 
     # Return the response
     return JSONResponse(content={"log": str(local_log)}, status_code=200)
+
+# Logging
+class Log:
+    def __init__(self):
+        self.content = ""
+    def __str__(self):
+        return str(self.content)
+    def add(self, message: str):
+        if self.content:
+            self.content += "\n"
+        self.content += f"{get_datetime_now()}: {message}"
+
+logging.basicConfig(
+    level=logging.INFO,  # Set the logging level
+    format="%(asctime)s - %(levelname)s - %(message)s",  # Log format
+    handlers=[
+        logging.FileHandler("server.log"),  # Log to a file named 'server.log'
+        logging.StreamHandler()  # Also log to the console
+    ]
+)

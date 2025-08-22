@@ -111,8 +111,16 @@ async def load_price_precisions(price_precisions_file: str) -> dict:
         content = await price_precisions_json.read()
         return json.loads(content)
 
-async def get_account_balance(trading_type: str = "practice") -> float:
-    """Retrieve the account balance from OANDA."""
+async def get_account_balance(trading_type: str = "practice") -> dict:
+    """
+    Retrieve the account balance and leverage from OANDA.
+
+    Args:
+        trading_type (str): The trading type, either "practice" or "live".
+
+    Returns:
+        dict: A dictionary containing the account balance and leverage.
+    """
     loc = "oanda.py:get_account_balance"
 
     try:
@@ -128,7 +136,15 @@ async def get_account_balance(trading_type: str = "practice") -> float:
             response = await client.get(url, headers=headers)
             response.raise_for_status()
             account_data = response.json()
-            return float(account_data["account"]["balance"])
+
+            # Extract balance and leverage
+            balance = float(account_data["account"]["balance"])
+            leverage = int(account_data["account"]["marginRate"])  # Leverage is typically provided as a margin rate (e.g., 0.02 for 50:1)
+
+            return {
+                "balance": balance,
+                "leverage": leverage,
+            }
     except Exception as e:
         logging.exception(f"{loc}: Could not retrieve account balance: {e}")
         raise
@@ -350,7 +366,6 @@ async def calculate_units(
     take_profit_price: float,
     risk_percent: float,
     trading_type: str = "practice",
-    leverage: int = 50,  # Default leverage
 ) -> dict:
     """
     Calculate the number of units to trade based on risk management.
@@ -362,7 +377,6 @@ async def calculate_units(
         take_profit_price (float): The take-profit price.
         risk_percent (float): The percentage of account balance to risk.
         trading_type (str): The trading type, either "practice" or "live".
-        leverage (int): The leverage ratio (default is 50:1).
 
     Returns:
         dict: A dictionary containing units, margin, pip value, trade value, reward, risk, and account balance.
@@ -370,11 +384,22 @@ async def calculate_units(
     loc = "oanda.py:calculate_units"
 
     try:
-        # Retrieve account balance
-        account_balance = await get_account_balance(trading_type)
+        # Retrieve account balance and leverage
+        account_data = await get_account_balance(trading_type)
+        account_balance = account_data["balance"]
+        leverage = account_data["leverage"]
+        account_currency = account_data["currency"]
+
+        # Convert account balance to target currency if necessary
+        quote_currency = instrument.split("_")[1]
+        if quote_currency != account_currency:
+            exchange_rate = await get_accountcurrency_exchange_rate(quote_currency, trading_type)
+            account_balance_converted = account_balance / exchange_rate
+        else:
+            account_balance_converted = account_balance
 
         # Calculate risk amount (e.g., 1% of account balance)
-        risk_amount_gbp = account_balance * (risk_percent / 100)
+        risk_amount = account_balance_converted * (risk_percent / 100)
 
         # Calculate stop-loss distance
         stop_loss_distance = abs(price - stop_loss_price)
@@ -382,32 +407,26 @@ async def calculate_units(
         # Determine pip value
         pip_value = 0.0001 if "JPY" not in instrument else 0.01
 
-        # Get the quote currency from the instrument (e.g., "USD" from "EUR_USD")
-        quote_currency = instrument.split("_")[1]
-
-        # Get the exchange rate for GBP/QUOTE
-        exchange_rate = await get_gbp_exchange_rate(quote_currency, trading_type)
-
-        # Adjust pip value for GBP
+        # Adjust pip value for target currency
         if "JPY" in instrument:
-            pip_value_in_gbp = pip_value * exchange_rate
+            pip_value = pip_value * exchange_rate
         else:
-            pip_value_in_gbp = pip_value / exchange_rate
+            pip_value = pip_value / exchange_rate
 
         # Calculate the number of units
-        units = int(risk_amount_gbp / (stop_loss_distance / pip_value_in_gbp))
+        units = int(risk_amount / (stop_loss_distance / pip_value))
 
         # Calculate margin (units / leverage)
-        margin_gbp = (units * price) / leverage
+        margin = (units * price) / leverage
 
         # Calculate trade value (units * price)
-        trade_value_gbp = units * price
+        trade_value = units * price
 
         # Calculate reward (take-profit distance * pip value * units)
-        reward_gbp = abs(take_profit_price - price) * pip_value_in_gbp * units
+        reward = abs(take_profit_price - price) * pip_value * units
 
         # Calculate risk (stop-loss distance * pip value * units)
-        risk_gbp = stop_loss_distance * pip_value_in_gbp * units
+        risk = stop_loss_distance * pip_value * units
 
         # Ensure units are positive
         if units <= 0:
@@ -415,37 +434,42 @@ async def calculate_units(
 
         return {
             "units": units,
-            "margin_gbp": margin_gbp,
-            "pip_value_gbp": pip_value_in_gbp,
-            "trade_value_gbp": trade_value_gbp,
-            "reward_gbp": reward_gbp,
-            "risk_gbp": risk_gbp,
-            "account_balance": account_balance,  # Include account balance
+            "margin": margin,
+            "pip_value": pip_value,
+            "trade_value": trade_value,
+            "reward": reward,
+            "risk": risk,
+            "account_balance_converted": account_balance_converted,  # Include converted account balance
+            "account_balance_original": account_balance,  # Include original account balance
         }
     except Exception as e:
         logging.exception(f"{loc}: Could not calculate units: {e}")
         raise
 
-async def get_gbp_exchange_rate(quote_currency: str, trading_type: str = "practice") -> float:
+async def get_accountcurrency_exchange_rate(quote_currency: str, trading_type: str = "practice") -> float:
     """
-    Retrieve the midpoint exchange rate for GBP/QUOTE using OANDA's Pricing API.
+    Retrieve the midpoint exchange rate for ACCOUNT_CURRENCY/QUOTE using OANDA's Pricing API.
 
     Args:
-        quote_currency (str): The quote currency (e.g., "JPY" from "GBP_JPY").
+        quote_currency (str): The quote currency (e.g., "JPY" from "USD_JPY").
         trading_type (str): The trading type, either "practice" or "live".
 
     Returns:
-        float: The midpoint exchange rate for GBP/QUOTE.
+        float: The midpoint exchange rate for ACCOUNT_CURRENCY/QUOTE.
 
     Raises:
         ValueError: If the instrument is not found in the pricing data.
         Exception: If there is an error retrieving the exchange rate.
     """
-    loc = "oanda.py:get_gbp_exchange_rate"
+    loc = "oanda.py:get_accountcurrency_exchange_rate"
 
     try:
-        # Construct the instrument (e.g., GBP_JPY)
-        instrument = f"GBP_{quote_currency}"
+        # Retrieve account currency from get_account_balance
+        account_data = await get_account_balance(trading_type)
+        account_currency = account_data["currency"]
+
+        # Construct the instrument (e.g., USD_JPY or GBP_JPY)
+        instrument = f"{account_currency}_{quote_currency}"
 
         # Retrieve credentials
         credentials = get_credentials(trading_type)
@@ -457,7 +481,7 @@ async def get_gbp_exchange_rate(quote_currency: str, trading_type: str = "practi
             "Authorization": f"Bearer {credentials['api_key']}",
         }
         params = {
-            "instruments": instrument  # e.g., "GBP_JPY"
+            "instruments": instrument  # e.g., "USD_JPY" or "GBP_JPY"
         }
 
         # Make the API request
@@ -478,5 +502,5 @@ async def get_gbp_exchange_rate(quote_currency: str, trading_type: str = "practi
             # If the instrument is not found in the response
             raise ValueError(f"Instrument {instrument} not found in pricing data.")
     except Exception as e:
-        logging.exception(f"{loc}: Could not retrieve exchange rate for GBP/{quote_currency}: {e}")
+        logging.exception(f"{loc}: Could not retrieve exchange rate for {account_currency}/{quote_currency}: {e}")
         raise
