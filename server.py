@@ -43,7 +43,7 @@ class Log:
         self.content += f"{get_datetime_now()}: {message}"
 
 # Translate and fill defaults for OANDA API
-def fill_defaults(post_data: dict):
+async def fill_defaults(post_data: dict):
     try:
         instrument = post_data["instrument"]
         price = float(post_data["price"])
@@ -61,7 +61,7 @@ def fill_defaults(post_data: dict):
     }
 
 # Translate and fill defaults for OANDA API
-def translate(post_data: dict):
+async def translate(post_data: dict):
     ticker = post_data.pop("ticker", None)
     if not ticker or len(ticker) != 6:
         raise HTTPException(status_code=400, detail="Invalid or missing ticker")
@@ -71,8 +71,8 @@ def translate(post_data: dict):
 # Translate and fill defaults for OANDA API
 async def post_data_to_oanda_parameters(post_data: dict):
     """Translate and fill defaults, including dynamic unit calculation."""
-    translated_data = translate(post_data)
-    filled_data = fill_defaults(translated_data)
+    translated_data = await translate(post_data)
+    filled_data = await fill_defaults(translated_data)
 
     # Calculate units and trade details dynamically using oanda.py
     try:
@@ -184,7 +184,7 @@ async def webhook(token: str, request: Request):
         logging.exception(msg)
         local_log.add(msg)
         try:
-            send_discord_alert(f"❌ TradingView Webhook Error:\n```\n{msg}\n```")
+            await send_discord_alert(f"❌ TradingView Webhook Error:\n```\n{msg}\n```")  # Await the Discord call
         except Exception as e:
             logging.error(f"Failed to send Discord alert: {e}")
         raise HTTPException(status_code=400, detail=str(local_log))
@@ -209,7 +209,7 @@ async def webhook(token: str, request: Request):
         logging.exception(msg)
         local_log.add(msg)
         try:
-            send_discord_alert(f"❌ TradingView Data Error:\n```\n{msg}\n```")
+            await send_discord_alert(f"❌ TradingView Data Error:\n```\n{msg}\n```")  # Await the Discord call
         except Exception as e:
             logging.error(f"Failed to send Discord alert: {e}")
         raise HTTPException(status_code=400, detail=str(local_log))
@@ -331,28 +331,14 @@ async def webhook(token: str, request: Request):
         msg = f"Error sending order to OANDA: {e}"
         logging.exception(msg)
         local_log.add(msg)
-        send_discord_alert(f"❌ OANDA Order Error:\n```\n{msg}\n```")
-        log_trade(
-            action=post_data["action"],
-            instrument=oanda_parameters.get("instrument"),
-            price=oanda_parameters.get("price"),
-            stop_loss_price=post_data.get("stop_loss_price"),
-            take_profit_price=post_data.get("take_profit_price"),
-            units=oanda_parameters.get("units"),
-            trading_type=oanda_parameters.get("trading_type"),
-            status="error",
-            account_balance=None,  # Log None if an error occurs
-            id_number=id_number,
-            margin=trade_details["margin"],
-            pip_value=trade_details["pip_value"],
-            trade_value=trade_details["trade_value"],
-            reward=trade_details["reward"],
-            risk=trade_details["risk"],
-        )
+        try:
+            await send_discord_alert(f"❌ OANDA Order Error:\n```\n{msg}\n```")  # Await the Discord call
+        except Exception as e:
+            logging.error(f"Failed to send Discord alert: {e}")
         raise HTTPException(status_code=500, detail=str(local_log))
 
     local_log.add("Order sent successfully")
-    send_discord_alert(alert_msg)
+    await send_discord_alert(alert_msg)
 
     # Return the response
     return JSONResponse(content={"log": str(local_log)}, status_code=200)
