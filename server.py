@@ -18,8 +18,29 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 from discord_webhook import send_discord_alert  # Import the send_discord_alert function
 
+# Logging configuration
+logging.basicConfig(
+    level=logging.INFO,  # Set the logging level
+    format="%(asctime)s - %(levelname)s - %(message)s",  # Log format
+    handlers=[
+        logging.FileHandler("server.log"),  # Log to a file named 'server.log'
+        logging.StreamHandler()  # Also log to the console
+    ]
+)
+
 # Initialize FastAPI app
 app = FastAPI()
+
+# Logging class
+class Log:
+    def __init__(self):
+        self.content = ""
+    def __str__(self):
+        return str(self.content)
+    def add(self, message: str):
+        if self.content:
+            self.content += "\n"
+        self.content += f"{get_datetime_now()}: {message}"
 
 # Translate and fill defaults for OANDA API
 def fill_defaults(post_data: dict):
@@ -162,7 +183,10 @@ async def webhook(token: str, request: Request):
         msg = f"Invalid JSON: {e}"
         logging.exception(msg)
         local_log.add(msg)
-        send_discord_alert(f"❌ TradingView Webhook Error:\n```\n{msg}\n```")
+        try:
+            send_discord_alert(f"❌ TradingView Webhook Error:\n```\n{msg}\n```")
+        except Exception as e:
+            logging.error(f"Failed to send Discord alert: {e}")
         raise HTTPException(status_code=400, detail=str(local_log))
 
     local_log.add(f"Received valid JSON:\n{json.dumps(post_data, indent=2)}")
@@ -184,7 +208,10 @@ async def webhook(token: str, request: Request):
         msg = f"Could not translate data: {e}"
         logging.exception(msg)
         local_log.add(msg)
-        send_discord_alert(f"❌ TradingView Data Error:\n```\n{msg}\n```")
+        try:
+            send_discord_alert(f"❌ TradingView Data Error:\n```\n{msg}\n```")
+        except Exception as e:
+            logging.error(f"Failed to send Discord alert: {e}")
         raise HTTPException(status_code=400, detail=str(local_log))
 
     local_log.add(f"OANDA parameters:\n{json.dumps(oanda_parameters, indent=2)}")
@@ -329,23 +356,3 @@ async def webhook(token: str, request: Request):
 
     # Return the response
     return JSONResponse(content={"log": str(local_log)}, status_code=200)
-
-# Logging
-class Log:
-    def __init__(self):
-        self.content = ""
-    def __str__(self):
-        return str(self.content)
-    def add(self, message: str):
-        if self.content:
-            self.content += "\n"
-        self.content += f"{get_datetime_now()}: {message}"
-
-logging.basicConfig(
-    level=logging.INFO,  # Set the logging level
-    format="%(asctime)s - %(levelname)s - %(message)s",  # Log format
-    handlers=[
-        logging.FileHandler("server.log"),  # Log to a file named 'server.log'
-        logging.StreamHandler()  # Also log to the console
-    ]
-)
