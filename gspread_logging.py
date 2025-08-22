@@ -35,6 +35,10 @@ def log_trade(action, instrument, price, stop_loss_price, take_profit_price, uni
         # Get the worksheet
         worksheet = get_google_sheet()
 
+        # Extract the balance value if account_balance is a dictionary
+        if isinstance(account_balance, dict):
+            account_balance = account_balance.get("balance", None)  # Extract the balance value
+
         # Prepare the trade data
         trade_data = [
             datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),  # Timestamp (UTC)
@@ -46,7 +50,7 @@ def log_trade(action, instrument, price, stop_loss_price, take_profit_price, uni
             units,  # Number of units
             trading_type,  # Trading type (e.g., practice or live)
             status,  # Status (e.g., success or error)
-            account_balance,  # Account balance
+            account_balance,  # Account balance (float or string)
             id_number,  # ID number
             margin,  # Margin
             pip_value,  # Pip value
