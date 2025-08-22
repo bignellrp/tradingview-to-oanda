@@ -55,6 +55,9 @@ def log_trade(action, instrument, price, stop_loss_price, take_profit_price, uni
             risk,  # Risk
         ]
 
+        # Debug log the trade data
+        logging.debug(f"Trade data being logged: {trade_data}")
+
         if worksheet:
             # Append the trade data to the worksheet
             worksheet.append_row(trade_data)
