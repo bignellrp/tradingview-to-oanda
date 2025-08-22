@@ -343,9 +343,11 @@ async def calculate_units(
     instrument: str,
     price: float,
     stop_loss_price: float,
+    take_profit_price: float,
     risk_percent: float,
-    trading_type: str = "practice"
-) -> int:
+    trading_type: str = "practice",
+    leverage: int = 50,  # Default leverage
+) -> dict:
     """
     Calculate the number of units to trade based on risk management.
 
@@ -353,11 +355,13 @@ async def calculate_units(
         instrument (str): The trading instrument (e.g., "EUR_USD", "GBP_JPY").
         price (float): The entry price.
         stop_loss_price (float): The stop-loss price.
+        take_profit_price (float): The take-profit price.
         risk_percent (float): The percentage of account balance to risk.
         trading_type (str): The trading type, either "practice" or "live".
+        leverage (int): The leverage ratio (default is 50:1).
 
     Returns:
-        int: The number of units to trade.
+        dict: A dictionary containing units, margin, pip value, trade value, reward, and risk.
     """
     loc = "oanda.py:calculate_units"
 
@@ -366,7 +370,7 @@ async def calculate_units(
         account_balance = await get_account_balance(trading_type)
 
         # Calculate risk amount (e.g., 1% of account balance)
-        risk_amount = account_balance * (risk_percent / 100)
+        risk_amount_gbp = account_balance * (risk_percent / 100)
 
         # Calculate stop-loss distance
         stop_loss_distance = abs(price - stop_loss_price)
@@ -387,13 +391,32 @@ async def calculate_units(
             pip_value_in_gbp = pip_value / exchange_rate
 
         # Calculate the number of units
-        units = int(risk_amount / (stop_loss_distance / pip_value_in_gbp))
+        units = int(risk_amount_gbp / (stop_loss_distance / pip_value_in_gbp))
+
+        # Calculate margin (units / leverage)
+        margin_gbp = (units * price) / leverage
+
+        # Calculate trade value (units * price)
+        trade_value_gbp = units * price
+
+        # Calculate reward (take-profit distance * pip value * units)
+        reward_gbp = abs(take_profit_price - price) * pip_value_in_gbp * units
+
+        # Calculate risk (stop-loss distance * pip value * units)
+        risk_gbp = stop_loss_distance * pip_value_in_gbp * units
 
         # Ensure units are positive
         if units <= 0:
             raise ValueError("Calculated units are zero or negative. Check stop-loss distance and account balance.")
 
-        return units
+        return {
+            "units": units,
+            "margin_gbp": margin_gbp,
+            "pip_value_gbp": pip_value_in_gbp,
+            "trade_value_gbp": trade_value_gbp,
+            "reward_gbp": reward_gbp,
+            "risk_gbp": risk_gbp,
+        }
     except Exception as e:
         logging.exception(f"{loc}: Could not calculate units: {e}")
         raise

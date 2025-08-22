@@ -11,6 +11,7 @@ from oanda import (
     close_long_position,
     open_short_position,
     close_short_position,
+    calculate_units,
 )
 from gspread_logging import log_trade  # Import the log_trade function
 import os
@@ -72,33 +73,20 @@ async def post_data_to_oanda_parameters(post_data: dict):
     translated_data = translate(post_data)
     filled_data = fill_defaults(translated_data)
 
-    # Calculate stop-loss price and units dynamically
+    # Calculate units and trade details dynamically using oanda.py
     try:
-        account_balance = await get_account_balance(filled_data["trading_type"])
-        risk_amount = account_balance * 0.01  # 1% of account balance
-        stop_loss_price = float(post_data.get("stop_loss_price"))
-        price = filled_data["price"]
-
-        # Calculate stop-loss distance
-        stop_loss_distance = abs(price - stop_loss_price)
-
-        # Get pip value and calculate units
-        pip_value = 0.0001  # Default pip value for most forex pairs
-        if "JPY" in filled_data["instrument"]:  # Adjust pip value for JPY pairs
-            pip_value = 0.01
-
-        # Calculate the number of units
-        units = int(risk_amount / (stop_loss_distance / pip_value))
-        if units <= 0:
-            raise ValueError("Calculated units are zero or negative. Check stop-loss distance and account balance.")
-
-        filled_data["units"] = units
-    except KeyError as e:
-        logging.exception(f"Missing required parameter for stop-loss calculation: {e}")
-        raise HTTPException(status_code=400, detail=f"Missing required parameter: {e}")
+        trade_details = await calculate_units(
+            instrument=filled_data["instrument"],
+            price=filled_data["price"],
+            stop_loss_price=float(post_data.get("stop_loss_price")),
+            take_profit_price=float(post_data.get("take_profit_price")),
+            risk_percent=1.0,  # 1% risk
+            trading_type=filled_data["trading_type"],
+        )
+        filled_data.update(trade_details)  # Add trade details to filled_data
     except Exception as e:
-        logging.exception(f"Error calculating units: {e}")
-        raise HTTPException(status_code=400, detail=f"Error calculating units: {e}")
+        logging.exception(f"Error calculating trade details: {e}")
+        raise HTTPException(status_code=400, detail=f"Error calculating trade details: {e}")
 
     return filled_data
 
@@ -218,9 +206,19 @@ async def webhook(token: str, request: Request):
 
     local_log.add(f"Received valid JSON:\n{json.dumps(post_data, indent=2)}")
 
+    # Extract and verify ID
+    id_number = post_data.get("id")
+    if not id_number:
+        msg = "Missing 'id' in JSON payload."
+        logging.error(msg)
+        local_log.add(msg)
+        raise HTTPException(status_code=400, detail=msg)
+
+    local_log.add(f"ID number: {id_number}")
+
     # Translate & fill defaults
     try:
-        oanda_parameters = await post_data_to_oanda_parameters(post_data)  # Updated to await
+        oanda_parameters = await post_data_to_oanda_parameters(post_data)
     except Exception as e:
         msg = f"Could not translate data: {e}"
         logging.exception(msg)
@@ -230,11 +228,27 @@ async def webhook(token: str, request: Request):
 
     local_log.add(f"OANDA parameters:\n{json.dumps(oanda_parameters, indent=2)}")
 
+    # Calculate units and trade details
+    try:
+        trade_details = await calculate_units(
+            instrument=oanda_parameters["instrument"],
+            price=oanda_parameters["price"],
+            stop_loss_price=post_data["stop_loss_price"],
+            take_profit_price=post_data["take_profit_price"],
+            risk_percent=1.0,
+            trading_type=oanda_parameters["trading_type"],
+        )
+        oanda_parameters["units"] = trade_details["units"]
+    except Exception as e:
+        msg = f"Error calculating trade details: {e}"
+        logging.exception(msg)
+        local_log.add(msg)
+        raise HTTPException(status_code=400, detail=str(local_log))
+
+    local_log.add(f"Trade details:\n{json.dumps(trade_details, indent=2)}")
+
     # Place order
     try:
-        # Retrieve the account balance
-        account_balance = await get_account_balance(oanda_parameters["trading_type"])
-
         if post_data["action"] == "open_long":
             order_response = await open_long_position(
                 instrument=oanda_parameters["instrument"],
@@ -253,7 +267,13 @@ async def webhook(token: str, request: Request):
                 units=oanda_parameters["units"],
                 trading_type=oanda_parameters["trading_type"],
                 status="success",
-                account_balance=account_balance,  # Include account balance
+                account_balance=await get_account_balance(oanda_parameters["trading_type"]),
+                id_number=id_number,
+                margin_gbp=trade_details["margin_gbp"],
+                pip_value_gbp=trade_details["pip_value_gbp"],
+                trade_value_gbp=trade_details["trade_value_gbp"],
+                reward_gbp=trade_details["reward_gbp"],
+                risk_gbp=trade_details["risk_gbp"],
             )
         elif post_data["action"] == "close_long":
             order_response = await close_long_position(
@@ -270,7 +290,8 @@ async def webhook(token: str, request: Request):
                 units=None,
                 trading_type=oanda_parameters["trading_type"],
                 status="success",
-                account_balance=account_balance,  # Include account balance
+                account_balance=await get_account_balance(oanda_parameters["trading_type"]),
+                id_number=id_number,
             )
         elif post_data["action"] == "open_short":
             order_response = await open_short_position(
@@ -290,7 +311,13 @@ async def webhook(token: str, request: Request):
                 units=oanda_parameters["units"],
                 trading_type=oanda_parameters["trading_type"],
                 status="success",
-                account_balance=account_balance,  # Include account balance
+                account_balance=await get_account_balance(oanda_parameters["trading_type"]),
+                id_number=id_number,
+                margin_gbp=trade_details["margin_gbp"],
+                pip_value_gbp=trade_details["pip_value_gbp"],
+                trade_value_gbp=trade_details["trade_value_gbp"],
+                reward_gbp=trade_details["reward_gbp"],
+                risk_gbp=trade_details["risk_gbp"],
             )
         elif post_data["action"] == "close_short":
             order_response = await close_short_position(
@@ -307,7 +334,8 @@ async def webhook(token: str, request: Request):
                 units=None,
                 trading_type=oanda_parameters["trading_type"],
                 status="success",
-                account_balance=account_balance,  # Include account balance
+                account_balance=await get_account_balance(oanda_parameters["trading_type"]),
+                id_number=id_number,
             )
         else:
             raise ValueError("Action must be 'open_long', 'close_long', 'open_short' or 'close_short'")
@@ -326,6 +354,12 @@ async def webhook(token: str, request: Request):
             trading_type=oanda_parameters.get("trading_type"),
             status="error",
             account_balance=None,  # Log None if an error occurs
+            id_number=id_number,
+            margin_gbp=trade_details["margin_gbp"],
+            pip_value_gbp=trade_details["pip_value_gbp"],
+            trade_value_gbp=trade_details["trade_value_gbp"],
+            reward_gbp=trade_details["reward_gbp"],
+            risk_gbp=trade_details["risk_gbp"],
         )
         raise HTTPException(status_code=500, detail=str(local_log))
 

@@ -322,6 +322,7 @@ The bot supports logging trades to a Google Spreadsheet using the Google Sheets 
      - `Trading Type`
      - `Status`
      - `Account Balance`
+     - 'ID'
 
 ### How It Works
 - If the `service_account.json` file is present and correctly configured, the bot will log each trade to the specified Google Spreadsheet.
