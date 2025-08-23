@@ -65,6 +65,7 @@ SUPPORTED_PAIRS = [
     "EUR_USD",
     "GBP_USD",
     "USD_JPY",
+    "JPY_USD",
     "AUD_USD",
     "USD_CAD",
     "NZD_USD",
