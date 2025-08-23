@@ -60,15 +60,50 @@ async def fill_defaults(post_data: dict):
         "trading_type": post_data.get("trading_type", "practice"),
     }
 
-# Translate and fill defaults for OANDA API
+# Hardcoded list of supported currency pairs
+SUPPORTED_PAIRS = [
+    "EUR_USD",
+    "GBP_USD",
+    "USD_JPY",
+    "AUD_USD",
+    "USD_CAD",
+    "NZD_USD",
+    "USD_CHF",
+    "EUR_GBP",
+    "EUR_JPY",
+    "GBP_JPY",
+    "XAU_USD",  # Gold in USD
+    "XAG_USD",  # Silver in USD
+    "BTC_USD",  # Bitcoin in USD
+    "ETH_USD"   # Ethereum in USD
+]
+
+UNSUPPORTED_PAIRS = [ # Support may be added in the future
+    "SPX500_USD",  # S&P 500 Index in EUR
+    "NAS100_USD",  # NASDAQ 100 Index in EUR
+]
+
+# Translate ticker and confirm its on the list of supported Oanda pairs
 async def translate(post_data: dict):
+    """
+    Translate ticker to instrument format for OANDA API and validate against supported pairs.
+    """
+    # Load the ticker from the post_data
     ticker = post_data.pop("ticker", None)
     if not ticker or len(ticker) != 6:
         raise HTTPException(status_code=400, detail="Invalid or missing ticker")
-    post_data["instrument"] = f"{ticker[:3]}_{ticker[3:]}"
+
+    # Translate the ticker to OANDA's instrument format
+    instrument = f"{ticker[:3]}_{ticker[3:]}"
+    post_data["instrument"] = instrument
+
+    # Validate the instrument against the supported pairs
+    if instrument not in SUPPORTED_PAIRS:
+        raise HTTPException(status_code=400, detail=f"Invalid or unsupported ticker: {instrument}")
+
     return post_data
 
-# Translate and fill defaults for OANDA API
+# Fill defaults and validated ticker ready for OANDA API
 async def post_data_to_oanda_parameters(post_data: dict):
     """Translate and fill defaults, including dynamic unit calculation."""
     translated_data = await translate(post_data)
