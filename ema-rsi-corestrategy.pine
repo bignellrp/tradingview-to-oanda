@@ -1,0 +1,142 @@
+//@version=5
+// Backtested in TradingView August 2025 over 365 days, ETHUSD 10m, 33 trades with a 51.52% profitable trades and a 2.082 profit factor.
+strategy("EMA Cross + RSI + Session + ATR SL/TP (1% risk)",
+     overlay=true,
+     initial_capital=100000,
+     commission_type=strategy.commission.percent,
+     commission_value=0.0,
+     pyramiding=0,
+     calc_on_order_fills=true,
+     calc_on_every_tick=false,
+     process_orders_on_close=true)
+
+// === Inputs ===
+emaFastLen    = input.int(8,  "Fast EMA", minval=1)
+emaSlowLen    = input.int(21, "Slow EMA", minval=1)
+rsiLen        = input.int(14, "RSI Length", minval=1)
+rsiMinLong    = input.float(60.0, "Min RSI for Long", step=0.1)
+rsiMaxShort   = input.float(40.0, "Max RSI for Short", step=0.1)
+
+useHTFTrend   = input.bool(true,  "Use Daily Trend Filter")
+htfFastLen    = input.int(50,     "Daily EMA Fast", minval=1)
+htfSlowLen    = input.int(200,    "Daily EMA Slow", minval=1)
+
+atrLen        = input.int(14, "ATR Length", minval=1)
+atrSLmult     = input.float(1.0, "ATR × for Stop", step=0.1, minval=0.1)
+rrMain        = input.float(2.0, "Main Take-Profit R", step=0.1, minval=0.2)
+takePartial   = input.bool(false,  "Take Partial at 1R")
+partialPct    = input.int(50,     "Partial % at 1R", minval=1, maxval=99)
+
+riskPct       = input.float(1.0,  "Risk % of Equity per Trade", step=0.1, minval=0.1, maxval=5.0)
+
+sess          = input.session("1000-1700", "Trading Session (local exchange time)")
+avoidOutside  = input.bool(true, "Block trades outside session")
+
+// === Core calcs ===
+emaFast  = ta.ema(close, emaFastLen)
+emaSlow  = ta.ema(close, emaSlowLen)
+rsi      = ta.rsi(close, rsiLen)
+atr      = ta.atr(atrLen)
+
+// HTF daily trend filter (uses current symbol’s daily)
+var string dTF = "D"
+dClose = request.security(syminfo.tickerid, dTF, close, lookahead=barmerge.lookahead_off)
+dEMAf  = request.security(syminfo.tickerid, dTF, ta.ema(close, htfFastLen))
+dEMAs  = request.security(syminfo.tickerid, dTF, ta.ema(close, htfSlowLen))
+trendUp   = not useHTFTrend or (dEMAf > dEMAs and dClose > dEMAs)
+trendDown = not useHTFTrend or (dEMAf < dEMAs and dClose < dEMAs)
+
+// Session filter
+inSess = not avoidOutside or time(timeframe.period, sess)
+
+// Signals (on bar close)
+longSig  = ta.crossover(emaFast, emaSlow) and rsi >= rsiMinLong and trendUp and inSess
+shortSig = ta.crossunder(emaFast, emaSlow) and rsi <= rsiMaxShort and trendDown and inSess
+
+// === Risk-based position sizing ===
+// Stop distance by ATR
+longStopDist  = atr * atrSLmult
+shortStopDist = atr * atrSLmult
+
+// Value of 1 price unit move per 1 contract
+pointValue = syminfo.pointvalue
+
+// Guard: avoid zero division
+nzLongStop  = math.max(longStopDist, syminfo.mintick)
+nzShortStop = math.max(shortStopDist, syminfo.mintick)
+
+// Cash risk
+riskCash = strategy.equity * (riskPct / 100.0)
+
+// Qty = risk / (stopDist * pointValue)
+qtyLong  = math.round(riskCash / (nzLongStop  * pointValue))
+qtyShort = math.round(riskCash / (nzShortStop * pointValue))
+
+// Prices for SL/TP based on close of signal bar
+longEntryPrice  = close
+shortEntryPrice = close
+longSLprice     = longEntryPrice  - nzLongStop
+shortSLprice    = shortEntryPrice + nzShortStop
+longTP1         = longEntryPrice  + nzLongStop       // 1R
+shortTP1        = shortEntryPrice - nzShortStop
+longTPmain      = longEntryPrice  + nzLongStop * rrMain
+shortTPmain     = shortEntryPrice - nzShortStop * rrMain
+
+// Place orders
+if (longSig and qtyLong > 0)
+    strategy.entry("Long", strategy.long, qty=qtyLong)
+    // Partial at 1R (optional)
+    if takePartial
+        strategy.exit("L-TP1", from_entry="Long", limit=longTP1, stop=longSLprice, qty_percent=partialPct)
+        // Main target for remainder
+        strategy.exit("L-TPmain", from_entry="Long", limit=longTPmain, stop=longSLprice)
+    else
+        strategy.exit("L-TP", from_entry="Long", limit=longTPmain, stop=longSLprice)
+
+if (shortSig and qtyShort > 0)
+    strategy.entry("Short", strategy.short, qty=qtyShort)
+    if takePartial
+        strategy.exit("S-TP1", from_entry="Short", limit=shortTP1, stop=shortSLprice, qty_percent=partialPct)
+        strategy.exit("S-TPmain", from_entry="Short", limit=shortTPmain, stop=shortSLprice)
+    else
+        strategy.exit("S-TP", from_entry="Short", limit=shortTPmain, stop=shortSLprice)
+
+// === Plotting ===
+plot(emaFast, "EMA Fast", color=color.new(color.teal, 0))
+plot(emaSlow, "EMA Slow", color=color.new(color.orange, 0))
+plot(longSLprice,  "SL Long",  color=color.new(color.red,   60), style=plot.style_linebr)
+plot(shortSLprice, "SL Short", color=color.new(color.red,   60), style=plot.style_linebr)
+plot(longTPmain,   "TP Long",  color=color.new(color.green, 60), style=plot.style_linebr)
+plot(shortTPmain,  "TP Short", color=color.new(color.green, 60), style=plot.style_linebr)
+hline(rsiMinLong,  "RSI Long Min",  color=color.new(color.green,70))
+hline(rsiMaxShort, "RSI Short Max", color=color.new(color.red,  70))
+
+// === Alerts (dynamic JSON via alert()) ===
+// build as single-line strings (no newlines)
+longAlert  = '{"action":"buy","ticker":"{{ticker}}","price":' + str.tostring(longEntryPrice) +
+             ',"units":' + str.tostring(qtyLong) +
+             ',"stop_loss_price":' + str.tostring(longSLprice) +
+             ',"take_profit_price":' + str.tostring(longTPmain) +
+             ',"trading_type":"practice"}'
+
+shortAlert = '{"action":"sell","ticker":"{{ticker}}","price":' + str.tostring(shortEntryPrice) +
+             ',"units":' + str.tostring(-qtyShort) +
+             ',"stop_loss_price":' + str.tostring(shortSLprice) +
+             ',"take_profit_price":' + str.tostring(shortTPmain) +
+             ',"trading_type":"practice"}'
+
+// fire alerts on bar close when signals occur
+if (barstate.isconfirmed and longSig)
+    alert(longAlert, alert.freq_once_per_bar_close)
+
+if (barstate.isconfirmed and shortSig)
+    alert(shortAlert, alert.freq_once_per_bar_close)
+
+// === TP/SL LABELS ON CHART === //
+if (longSig)
+    label.new(bar_index, low, "TP: " + str.tostring(longTPmain, format.mintick), style=label.style_label_up, color=color.green, textcolor=color.white)
+    label.new(bar_index, low, "SL: " + str.tostring(longSLprice, format.mintick), style=label.style_label_down, color=color.red, textcolor=color.white)
+
+if (shortSig)
+    label.new(bar_index, high, "TP: " + str.tostring(shortTPmain, format.mintick), style=label.style_label_down, color=color.green, textcolor=color.white)
+    label.new(bar_index, high, "SL: " + str.tostring(shortSLprice, format.mintick), style=label.style_label_up, color=color.red, textcolor=color.white)
