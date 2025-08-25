@@ -44,9 +44,12 @@ class Log:
 
 # Translate and fill defaults for OANDA API
 async def fill_defaults(post_data: dict):
+    """
+    Fill default values for OANDA API parameters.
+    """
     try:
         instrument = post_data["instrument"]
-        price = float(post_data["price"])
+        price = float(post_data["price"]) if "price" in post_data else None  # Handle missing price
     except KeyError as e:
         logging.exception(f"Missing required parameter: {e}")
         raise HTTPException(status_code=400, detail=f"Missing required parameter: {e}")
@@ -54,7 +57,7 @@ async def fill_defaults(post_data: dict):
     return {
         "instrument": instrument,
         "units": int(post_data.get("units", 500)),
-        "price": price,
+        "price": price,  # Allow price to be None
         "trailing_stop_loss_percent": float(post_data.get("trailing_stop_loss_percent", 0.01)),
         "take_profit_percent": float(post_data.get("take_profit_percent", 0.06)),
         "trading_type": post_data.get("trading_type", "practice"),
@@ -106,9 +109,15 @@ async def translate(post_data: dict):
 
 # Fill defaults and validated ticker ready for OANDA API
 async def post_data_to_oanda_parameters(post_data: dict):
-    """Translate and fill defaults, including dynamic unit calculation."""
+    """
+    Translate and fill defaults, including dynamic unit calculation.
+    """
     translated_data = await translate(post_data)
     filled_data = await fill_defaults(translated_data)
+
+    # Skip unit calculation for actions that don't require price
+    if post_data["action"] in ["close_long", "close_short"]:
+        return filled_data
 
     # Calculate units and trade details dynamically using oanda.py
     try:
@@ -191,6 +200,20 @@ app.add_middleware(RestrictAccessMiddleware)
 # Webhook endpoint
 @app.post("/webhook/{token}")
 async def webhook(token: str, request: Request):
+    # Log the raw request data for debugging
+    try:
+        client_ip = request.headers.get("X-Real-IP") or request.headers.get("X-Forwarded-For", "Unknown IP")
+        headers = dict(request.headers)
+        body = await request.body()  # Read the raw body of the request
+
+        logging.info(f"Raw Request Data:\n"
+                     f"Client IP: {client_ip}\n"
+                     f"Headers: {json.dumps(headers, indent=2)}\n"
+                     f"Body: {body.decode('utf-8')}")
+    except Exception as e:
+        logging.error(f"Failed to log raw request data: {e}")
+
+    # Validate the token
     if token not in access_token:
         raise HTTPException(status_code=403, detail="403 Forbidden: Invalid token")
 
