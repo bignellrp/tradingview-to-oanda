@@ -111,7 +111,7 @@ async def load_price_precisions(price_precisions_file: str) -> dict:
         content = await price_precisions_json.read()
         return json.loads(content)
 
-async def get_account_balance(trading_type: str = "practice") -> dict:
+async def get_account_balance(trading_type: str = "practice") -> dict:  # Defaults to practice
     """
     Retrieve the account balance and leverage from OANDA.
 
@@ -163,8 +163,8 @@ async def open_long_position(
     price: float,
     stop_loss_price: float,
     take_profit_price: float,  # Ensure this argument is included
-    risk_percent: float = 1.0,
-    trading_type: str = "practice",
+    risk_percent: float = 1.0,  # Defaults to 1%
+    trading_type: str = "practice",  # Defaults to practice
 ) -> dict:
     """Open a long position on OANDA."""
     loc = "oanda.py:open_long_position"
@@ -259,8 +259,8 @@ async def open_short_position(
     price: float,
     stop_loss_price: float,
     take_profit_price: float,
-    risk_percent: float = 1.0,
-    trading_type: str = "practice",
+    risk_percent: float = 1.0,  # Defaults to 1%
+    trading_type: str = "practice",  # Defaults to practice
 ) -> dict:
     """
     Open a short position on OANDA.
