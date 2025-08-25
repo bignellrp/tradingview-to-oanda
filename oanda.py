@@ -417,13 +417,11 @@ async def calculate_units(
         pip_value = 0.0001 if "JPY" not in instrument else 0.01
 
         # Adjust pip value for target currency
-        if "JPY" in instrument:
-            pip_value = pip_value * exchange_rate
-        else:
+        if quote_currency != account_currency:
             pip_value = pip_value / exchange_rate
 
         # Calculate the number of units
-        units = int(risk_amount / (stop_loss_distance / pip_value))
+        units = int(risk_amount / (stop_loss_distance * pip_value))
 
         # Calculate margin (units / leverage)
         margin = (units * price) / leverage
@@ -436,6 +434,13 @@ async def calculate_units(
 
         # Calculate risk (stop-loss distance * pip value * units)
         risk = stop_loss_distance * pip_value * units
+
+        # Debug log intermediate values
+        logging.debug(f"{loc}: Account Balance: {account_balance}")
+        logging.debug(f"{loc}: Risk Amount: {risk_amount}")
+        logging.debug(f"{loc}: Stop Loss Distance: {stop_loss_distance}")
+        logging.debug(f"{loc}: Pip Value: {pip_value}")
+        logging.debug(f"{loc}: Units: {units}")
 
         # Ensure units are positive
         if units <= 0:
