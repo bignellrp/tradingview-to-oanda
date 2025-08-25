@@ -191,6 +191,20 @@ app.add_middleware(RestrictAccessMiddleware)
 # Webhook endpoint
 @app.post("/webhook/{token}")
 async def webhook(token: str, request: Request):
+    # Log the raw request data for debugging
+    try:
+        client_ip = request.headers.get("X-Real-IP") or request.headers.get("X-Forwarded-For", "Unknown IP")
+        headers = dict(request.headers)
+        body = await request.body()  # Read the raw body of the request
+
+        logging.info(f"Raw Request Data:\n"
+                     f"Client IP: {client_ip}\n"
+                     f"Headers: {json.dumps(headers, indent=2)}\n"
+                     f"Body: {body.decode('utf-8')}")
+    except Exception as e:
+        logging.error(f"Failed to log raw request data: {e}")
+
+    # Validate the token
     if token not in access_token:
         raise HTTPException(status_code=403, detail="403 Forbidden: Invalid token")
 
