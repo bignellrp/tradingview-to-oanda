@@ -279,36 +279,25 @@ async def webhook(token: str, request: Request):
 
     local_log.add(f"OANDA parameters:\n{json.dumps(oanda_parameters, indent=2)}")
 
-    # Calculate units and trade details
-    try:
-        stop_loss_price = post_data.get("stop_loss_price")  # Use .get() to handle missing keys
-        take_profit_price = post_data.get("take_profit_price")  # Use .get() to handle missing keys
-
-        trade_details = await calculate_units(
-            instrument=oanda_parameters["instrument"],
-            price=oanda_parameters["price"],
-            stop_loss_price=float(stop_loss_price) if stop_loss_price else None,
-            take_profit_price=float(take_profit_price) if take_profit_price else None,
-            risk_percent=1.0,
-            trading_type=oanda_parameters["trading_type"],
-        )
-        oanda_parameters["units"] = trade_details["units"]
-    except Exception as e:
-        msg = f"Error calculating trade details: {e}"
-        logging.exception(msg)
-        local_log.add(msg)
-        raise HTTPException(status_code=400, detail=str(local_log))
-
-    local_log.add(f"Trade details:\n{json.dumps(trade_details, indent=2)}")
-
     # Place order
     try:
         if post_data["action"] == "open_long":
+            # Calculate units for open_long
+            trade_details = await calculate_units(
+                instrument=oanda_parameters["instrument"],
+                price=oanda_parameters["price"],
+                stop_loss_price=post_data.get("stop_loss_price"),
+                take_profit_price=post_data.get("take_profit_price"),
+                risk_percent=1.0,
+                trading_type=oanda_parameters["trading_type"],
+            )
+            oanda_parameters["units"] = trade_details["units"]
+
             order_response = await open_long_position(
                 instrument=oanda_parameters["instrument"],
                 price=oanda_parameters["price"],
-                stop_loss_price=post_data["stop_loss_price"],
-                take_profit_price=post_data["take_profit_price"],
+                stop_loss_price=post_data.get("stop_loss_price"),
+                take_profit_price=post_data.get("take_profit_price"),
                 trading_type=oanda_parameters["trading_type"],
             )
             alert_msg = f"✅ Opened LONG position for {oanda_parameters['instrument']}"
@@ -316,8 +305,8 @@ async def webhook(token: str, request: Request):
                 action="open_long",
                 instrument=oanda_parameters["instrument"],
                 price=oanda_parameters["price"],
-                stop_loss_price=post_data["stop_loss_price"],
-                take_profit_price=post_data["take_profit_price"],
+                stop_loss_price=post_data.get("stop_loss_price"),
+                take_profit_price=post_data.get("take_profit_price"),
                 units=oanda_parameters["units"],
                 trading_type=oanda_parameters["trading_type"],
                 status="success",
@@ -348,11 +337,22 @@ async def webhook(token: str, request: Request):
                 id_number=id_number,
             )
         elif post_data["action"] == "open_short":
+            # Calculate units for open_short
+            trade_details = await calculate_units(
+                instrument=oanda_parameters["instrument"],
+                price=oanda_parameters["price"],
+                stop_loss_price=post_data.get("stop_loss_price"),
+                take_profit_price=post_data.get("take_profit_price"),
+                risk_percent=1.0,
+                trading_type=oanda_parameters["trading_type"],
+            )
+            oanda_parameters["units"] = trade_details["units"]
+
             order_response = await open_short_position(
                 instrument=oanda_parameters["instrument"],
                 price=oanda_parameters["price"],
-                stop_loss_price=post_data["stop_loss_price"],
-                take_profit_price=post_data["take_profit_price"],
+                stop_loss_price=post_data.get("stop_loss_price"),
+                take_profit_price=post_data.get("take_profit_price"),
                 trading_type=oanda_parameters["trading_type"],
             )
             alert_msg = f"✅ Opened SHORT position for {oanda_parameters['instrument']}"
@@ -360,8 +360,8 @@ async def webhook(token: str, request: Request):
                 action="open_short",
                 instrument=oanda_parameters["instrument"],
                 price=oanda_parameters["price"],
-                stop_loss_price=post_data["stop_loss_price"],
-                take_profit_price=post_data["take_profit_price"],
+                stop_loss_price=post_data.get("stop_loss_price"),
+                take_profit_price=post_data.get("take_profit_price"),
                 units=oanda_parameters["units"],
                 trading_type=oanda_parameters["trading_type"],
                 status="success",
