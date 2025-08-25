@@ -371,9 +371,9 @@ async def close_short_position(instrument: str, trading_type: str = "practice") 
 async def calculate_units(
     instrument: str,
     price: float,
-    stop_loss_price: float,
-    take_profit_price: float,
-    risk_percent: float,
+    stop_loss_price: float = None,
+    take_profit_price: float = None,
+    risk_percent: float = 1.0,
     trading_type: str = "practice",
 ) -> dict:
     """
@@ -382,8 +382,8 @@ async def calculate_units(
     Args:
         instrument (str): The trading instrument (e.g., "EUR_USD", "GBP_JPY").
         price (float): The entry price.
-        stop_loss_price (float): The stop-loss price.
-        take_profit_price (float): The take-profit price.
+        stop_loss_price (float): The stop-loss price (optional).
+        take_profit_price (float): The take-profit price (optional).
         risk_percent (float): The percentage of account balance to risk.
         trading_type (str): The trading type, either "practice" or "live".
 
@@ -410,8 +410,8 @@ async def calculate_units(
         # Calculate risk amount (e.g., 1% of account balance)
         risk_amount = account_balance_converted * (risk_percent / 100)
 
-        # Calculate stop-loss distance
-        stop_loss_distance = abs(price - stop_loss_price)
+        # Calculate stop-loss distance if stop_loss_price is provided
+        stop_loss_distance = abs(price - stop_loss_price) if stop_loss_price else None
 
         # Determine pip value
         pip_value = 0.0001 if "JPY" not in instrument else 0.01
@@ -421,7 +421,10 @@ async def calculate_units(
             pip_value = pip_value / exchange_rate
 
         # Calculate the number of units
-        units = int(risk_amount / (stop_loss_distance * pip_value))
+        if stop_loss_distance:
+            units = int(risk_amount / (stop_loss_distance * pip_value))
+        else:
+            units = int(risk_amount / pip_value)  # Fallback if no stop-loss is provided
 
         # Calculate margin (units / leverage)
         margin = (units * price) / leverage
@@ -429,11 +432,11 @@ async def calculate_units(
         # Calculate trade value (units * price)
         trade_value = units * price
 
-        # Calculate reward (take-profit distance * pip value * units)
-        reward = abs(take_profit_price - price) * pip_value * units
+        # Calculate reward (take-profit distance * pip value * units) if take_profit_price is provided
+        reward = abs(take_profit_price - price) * pip_value * units if take_profit_price else None
 
-        # Calculate risk (stop-loss distance * pip value * units)
-        risk = stop_loss_distance * pip_value * units
+        # Calculate risk (stop-loss distance * pip value * units) if stop_loss_price is provided
+        risk = stop_loss_distance * pip_value * units if stop_loss_price else None
 
         # Debug log intermediate values
         logging.debug(f"{loc}: Account Balance: {account_balance}")
