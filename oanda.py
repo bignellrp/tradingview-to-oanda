@@ -535,7 +535,7 @@ async def get_open_positions(trading_type: str = "practice") -> dict:
     try:
         credentials = get_credentials(trading_type)
 
-        url = f"{get_base_url(trading_type)}/v3/accounts/{credentials['account_id']}/positions"
+        url = f"{get_base_url(trading_type)}/v3/accounts/{credentials['account_id']}/openPositions"
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {credentials['api_key']}",
