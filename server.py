@@ -119,13 +119,17 @@ async def post_data_to_oanda_parameters(post_data: dict):
     if post_data["action"] in ["close_long", "close_short"]:
         return filled_data
 
+    # Handle missing stop_loss_price and take_profit_price
+    stop_loss_price = float(post_data.get("stop_loss_price")) if "stop_loss_price" in post_data else None
+    take_profit_price = float(post_data.get("take_profit_price")) if "take_profit_price" in post_data else None
+
     # Calculate units and trade details dynamically using oanda.py
     try:
         trade_details = await calculate_units(
             instrument=filled_data["instrument"],
             price=filled_data["price"],
-            stop_loss_price=float(post_data.get("stop_loss_price")),
-            take_profit_price=float(post_data.get("take_profit_price")),
+            stop_loss_price=stop_loss_price,
+            take_profit_price=take_profit_price,
             risk_percent=1.0,  # 1% risk
             trading_type=filled_data["trading_type"],
         )
