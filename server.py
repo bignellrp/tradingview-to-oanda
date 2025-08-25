@@ -281,11 +281,14 @@ async def webhook(token: str, request: Request):
 
     # Calculate units and trade details
     try:
+        stop_loss_price = post_data.get("stop_loss_price")  # Use .get() to handle missing keys
+        take_profit_price = post_data.get("take_profit_price")  # Use .get() to handle missing keys
+
         trade_details = await calculate_units(
             instrument=oanda_parameters["instrument"],
             price=oanda_parameters["price"],
-            stop_loss_price=post_data["stop_loss_price"],
-            take_profit_price=post_data["take_profit_price"],
+            stop_loss_price=float(stop_loss_price) if stop_loss_price else None,
+            take_profit_price=float(take_profit_price) if take_profit_price else None,
             risk_percent=1.0,
             trading_type=oanda_parameters["trading_type"],
         )
