@@ -110,35 +110,39 @@ async def translate(post_data: dict):
 # Fill defaults and validated ticker ready for OANDA API
 async def post_data_to_oanda_parameters(post_data: dict):
     """
-    Translate and fill defaults, including dynamic unit calculation.
+    Translate and validate data, including dynamic unit calculation.
     """
+    # Translate the ticker and validate it
     translated_data = await translate(post_data)
-    filled_data = await fill_defaults(translated_data)
 
-    # Skip unit calculation for actions that don't require price
+    # Validate required fields for open positions
+    if post_data["action"] in ["open_long", "open_short"]:
+        if "stop_loss_price" not in post_data or "take_profit_price" not in post_data or "price" not in post_data:
+            raise HTTPException(
+                status_code=400,
+                detail="Missing required parameters: 'price', 'stop_loss_price', and 'take_profit_price' are required for open positions."
+            )
+
+    # Skip unit calculation for close actions
     if post_data["action"] in ["close_long", "close_short"]:
-        return filled_data
-
-    # Handle missing stop_loss_price and take_profit_price
-    stop_loss_price = float(post_data.get("stop_loss_price")) if "stop_loss_price" in post_data else None
-    take_profit_price = float(post_data.get("take_profit_price")) if "take_profit_price" in post_data else None
+        return translated_data
 
     # Calculate units and trade details dynamically using oanda.py
     try:
         trade_details = await calculate_units(
-            instrument=filled_data["instrument"],
-            price=filled_data["price"],
-            stop_loss_price=stop_loss_price,
-            take_profit_price=take_profit_price,
+            instrument=translated_data["instrument"],
+            price=float(post_data["price"]),
+            stop_loss_price=float(post_data["stop_loss_price"]),
+            take_profit_price=float(post_data["take_profit_price"]),
             risk_percent=1.0,  # 1% risk
-            trading_type=filled_data["trading_type"],
+            trading_type=translated_data.get("trading_type", "practice"),
         )
-        filled_data.update(trade_details)  # Add trade details to filled_data
+        translated_data.update(trade_details)  # Add trade details to translated_data
     except Exception as e:
         logging.exception(f"Error calculating trade details: {e}")
         raise HTTPException(status_code=400, detail=f"Error calculating trade details: {e}")
 
-    return filled_data
+    return translated_data
 
 # Access tokens
 try:
