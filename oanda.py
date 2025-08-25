@@ -48,6 +48,8 @@ async def get_accounts(trading_type: str = "practice") -> httpx.Response:
             "Content-Type": "application/json",
             "Authorization": f"Bearer {credentials['api_key']}",
         }
+        # Log the purpose of the API call
+        logging.info(f"{loc}: [GET_ACCOUNTS_LIST] Making API call to {url}")
 
         async with httpx.AsyncClient() as client:
             response = await client.get(url, headers=headers)
@@ -69,6 +71,8 @@ async def get_instruments(trading_type: str = "practice") -> dict:
             "Content-Type": "application/json",
             "Authorization": f"Bearer {credentials['api_key']}",
         }
+        # Log the purpose of the API call
+        logging.info(f"{loc}: [GET_INSTRUMENTS_LIST] Making API call to {url}")
 
         async with httpx.AsyncClient() as client:
             response = await client.get(url, headers=headers)
@@ -132,6 +136,9 @@ async def get_account_balance(trading_type: str = "practice") -> dict:  # Defaul
             "Authorization": f"Bearer {credentials['api_key']}",
         }
 
+        # Log the purpose of the API call
+        logging.info(f"{loc}: [GET_ACCOUNT_BALANCE] Making API call to {url}")
+
         async with httpx.AsyncClient() as client:
             response = await client.get(url, headers=headers)
             response.raise_for_status()
@@ -162,20 +169,24 @@ async def open_long_position(
     instrument: str,
     price: float,
     stop_loss_price: float,
-    take_profit_price: float,  # Ensure this argument is included
-    risk_percent: float = 1.0,  # Defaults to 1%
-    trading_type: str = "practice",  # Defaults to practice
+    take_profit_price: float,
+    risk_percent: float = 1.0,
+    trading_type: str = "practice",
 ) -> dict:
     """Open a long position on OANDA."""
     loc = "oanda.py:open_long_position"
 
     try:
+        # Check if any position is already open
+        if await check_any_position_open(trading_type):
+            raise ValueError(f"{loc}: A position is already open. Only one trade is allowed at a time.")
+
         # Calculate the number of units to trade
         trade_details = await calculate_units(
             instrument=instrument,
             price=price,
             stop_loss_price=stop_loss_price,
-            take_profit_price=take_profit_price,  # Pass the missing argument
+            take_profit_price=take_profit_price,
             risk_percent=risk_percent,
             trading_type=trading_type,
         )
@@ -206,6 +217,7 @@ async def open_long_position(
             logging.info(f"{loc}: Debug mode enabled. Order logged to server.log.")
             return {"status": "debug", "message": "Order logged to server.log"}
 
+        logging.info(f"{get_datetime_now()} - OPEN LONG POSITION:\n{json.dumps(payload, indent=2)}")
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 url,
@@ -259,26 +271,17 @@ async def open_short_position(
     price: float,
     stop_loss_price: float,
     take_profit_price: float,
-    risk_percent: float = 1.0,  # Defaults to 1%
-    trading_type: str = "practice",  # Defaults to practice
+    risk_percent: float = 1.0,
+    trading_type: str = "practice",
 ) -> dict:
-    """
-    Open a short position on OANDA.
-
-    Args:
-        instrument (str): The trading instrument (e.g., "EUR_USD", "GBP_JPY").
-        price (float): The entry price.
-        stop_loss_price (float): The stop-loss price.
-        take_profit_price (float): The take-profit price.
-        risk_percent (float): The percentage of account balance to risk.
-        trading_type (str): The trading type, either "practice" or "live".
-
-    Returns:
-        dict: The response from the OANDA API.
-    """
+    """Open a short position on OANDA."""
     loc = "oanda.py:open_short_position"
 
     try:
+        # Check if any position is already open
+        if await check_any_position_open(trading_type):
+            raise ValueError(f"{loc}: A position is already open. Only one trade is allowed at a time.")
+
         # Calculate the number of units to trade
         trade_details = await calculate_units(
             instrument=instrument,
@@ -290,14 +293,11 @@ async def open_short_position(
         )
         units = -trade_details["units"]  # Negate only the units value for short positions
 
-        # Retrieve credentials and price precision
         credentials = get_credentials(trading_type)
         price_decimals = await get_price_precision(instrument, trading_type)
 
-        # Construct the API url
         url = f"{get_base_url(trading_type)}/v3/accounts/{credentials['account_id']}/orders"
 
-        # Construct the payload for the API request
         payload = {
             "order": {
                 "type": "MARKET",
@@ -313,13 +313,12 @@ async def open_short_position(
             }
         }
 
-        # Debug mode: Log the payload instead of sending the request
         if DEBUG_MODE:
             logging.info(f"{get_datetime_now()} - OPEN SHORT POSITION:\n{json.dumps(payload, indent=2)}")
             logging.info(f"{loc}: Debug mode enabled. Order logged to server.log.")
             return {"status": "debug", "message": "Order logged to server.log"}
 
-        # Send the API request
+        logging.info(f"{get_datetime_now()} - OPEN SHORT POSITION:\n{json.dumps(payload, indent=2)}")
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 url,
@@ -473,10 +472,6 @@ async def get_accountcurrency_exchange_rate(quote_currency: str, trading_type: s
 
     Returns:
         float: The midpoint exchange rate for ACCOUNT_CURRENCY/QUOTE.
-
-    Raises:
-        ValueError: If the instrument is not found in the pricing data.
-        Exception: If there is an error retrieving the exchange rate.
     """
     loc = "oanda.py:get_accountcurrency_exchange_rate"
 
@@ -501,6 +496,9 @@ async def get_accountcurrency_exchange_rate(quote_currency: str, trading_type: s
             "instruments": instrument  # e.g., "USD_JPY" or "GBP_JPY"
         }
 
+        # Log the purpose of the API call
+        logging.info(f"{loc}: [GET_EXCHANGE_RATE] Making API call to {url} with params {params}")
+
         # Make the API request
         async with httpx.AsyncClient() as client:
             response = await client.get(url, headers=headers, params=params)
@@ -520,4 +518,93 @@ async def get_accountcurrency_exchange_rate(quote_currency: str, trading_type: s
             raise ValueError(f"Instrument {instrument} not found in pricing data.")
     except Exception as e:
         logging.exception(f"{loc}: Could not retrieve exchange rate for {account_currency}/{quote_currency}: {e}")
+        raise
+
+async def get_open_positions(trading_type: str = "practice") -> dict:
+    """
+    Retrieve all open positions for the account.
+
+    Args:
+        trading_type (str): The trading type, either "practice" or "live".
+
+    Returns:
+        dict: A dictionary containing all open positions.
+    """
+    loc = "oanda.py:get_open_positions"
+
+    try:
+        credentials = get_credentials(trading_type)
+
+        url = f"{get_base_url(trading_type)}/v3/accounts/{credentials['account_id']}/positions"
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {credentials['api_key']}",
+        }
+
+        # Log the purpose of the API call
+        logging.info(f"{loc}: [GET_OPEN_POSITIONS] Making API call to {url}")
+
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, headers=headers)
+            response.raise_for_status()
+            positions_data = response.json()
+
+            # Debug log the positions data
+            logging.debug(f"{loc}: Open positions response: {json.dumps(positions_data, indent=2)}")
+
+            return positions_data
+    except Exception as e:
+        logging.exception(f"{loc}: Could not retrieve open positions: {e}")
+        raise
+
+async def check_position_open(instrument: str, trading_type: str = "practice") -> bool:
+    """
+    Check if a position is already open for the given instrument.
+
+    Args:
+        instrument (str): The trading instrument (e.g., "EUR_USD").
+        trading_type (str): The trading type, either "practice" or "live".
+
+    Returns:
+        bool: True if a position is open for the instrument, False otherwise.
+    """
+    loc = "oanda.py:check_position_open"
+
+    try:
+        positions_data = await get_open_positions(trading_type)
+
+        # Check if the instrument exists in the open positions
+        for position in positions_data.get("positions", []):
+            if position["instrument"] == instrument:
+                logging.info(f"{loc}: Position already open for instrument: {instrument}")
+                return True
+
+        return False
+    except Exception as e:
+        logging.exception(f"{loc}: Could not check if position is open: {e}")
+        raise
+
+async def check_any_position_open(trading_type: str = "practice") -> bool:
+    """
+    Check if any position is already open for the account.
+
+    Args:
+        trading_type (str): The trading type, either "practice" or "live".
+
+    Returns:
+        bool: True if any position is open, False otherwise.
+    """
+    loc = "oanda.py:check_any_position_open"
+
+    try:
+        positions_data = await get_open_positions(trading_type)
+
+        # Check if there are any open positions
+        if positions_data.get("positions"):
+            logging.info(f"{loc}: A position is already open.")
+            return True
+
+        return False
+    except Exception as e:
+        logging.exception(f"{loc}: Could not check if any position is open: {e}")
         raise
