@@ -42,27 +42,6 @@ class Log:
             self.content += "\n"
         self.content += f"{get_datetime_now()}: {message}"
 
-# Translate and fill defaults for OANDA API
-async def fill_defaults(post_data: dict):
-    """
-    Fill default values for OANDA API parameters.
-    """
-    try:
-        instrument = post_data["instrument"]
-        price = float(post_data["price"]) if "price" in post_data else None  # Handle missing price
-    except KeyError as e:
-        logging.exception(f"Missing required parameter: {e}")
-        raise HTTPException(status_code=400, detail=f"Missing required parameter: {e}")
-
-    return {
-        "instrument": instrument,
-        "units": int(post_data.get("units", 500)),
-        "price": price,  # Allow price to be None
-        "trailing_stop_loss_percent": float(post_data.get("trailing_stop_loss_percent", 0.01)),
-        "take_profit_percent": float(post_data.get("take_profit_percent", 0.06)),
-        "trading_type": post_data.get("trading_type", "practice"),
-    }
-
 # Hardcoded list of supported currency pairs
 SUPPORTED_PAIRS = [
     "EUR_USD",
@@ -133,7 +112,7 @@ async def post_data_to_oanda_parameters(post_data: dict):
             price=float(post_data["price"]),
             stop_loss_price=float(post_data["stop_loss_price"]),
             take_profit_price=float(post_data["take_profit_price"]),
-            risk_percent=1.0,  # 1% risk
+            risk_percent=100,  # 1% risk is 100 as an integer, avoiding floats to maintain precision
             trading_type=translated_data.get("trading_type", "practice"),
         )
         translated_data.update(trade_details)  # Add trade details to translated_data

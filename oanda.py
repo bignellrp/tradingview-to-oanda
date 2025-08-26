@@ -372,7 +372,7 @@ async def calculate_units(
     price: float,
     stop_loss_price: float = None,
     take_profit_price: float = None,
-    risk_percent: float = 1.0,
+    risk_percent: int = 100,
     trading_type: str = "practice",
 ) -> dict:
     """
@@ -383,7 +383,7 @@ async def calculate_units(
         price (float): The entry price.
         stop_loss_price (float): The stop-loss price (optional).
         take_profit_price (float): The take-profit price (optional).
-        risk_percent (float): The percentage of account balance to risk.
+        risk_percent (int): The percentage of account balance to risk.
         trading_type (str): The trading type, either "practice" or "live".
 
     Returns:
@@ -402,28 +402,26 @@ async def calculate_units(
         quote_currency = instrument.split("_")[1]
         if quote_currency != account_currency:
             exchange_rate = await get_accountcurrency_exchange_rate(quote_currency, trading_type)
-            account_balance_converted = account_balance / exchange_rate
+            account_balance_converted = account_balance * exchange_rate
         else:
             account_balance_converted = account_balance
 
         # Calculate risk amount (e.g., 1% of account balance)
         risk_amount = account_balance_converted * (risk_percent / 100)
-
-        # Calculate stop-loss distance if stop_loss_price is provided
-        stop_loss_distance = abs(price - stop_loss_price) if stop_loss_price else None
+        print(f"Risk Amount: {risk_amount}")
 
         # Determine pip value
         pip_value = 0.0001 if "JPY" not in instrument else 0.01
 
-        # Adjust pip value for target currency
-        if quote_currency != account_currency:
-            pip_value = pip_value / exchange_rate
+        # Calculate stop-loss distance in pips
+        stop_loss_distance = abs(price - stop_loss_price) / pip_value if stop_loss_price else None
+        take_profit_distance = abs(take_profit_price - price) / pip_value if take_profit_price else None
+        
+        print(f"Stop Loss Distance in Pips: {stop_loss_distance}")
+        print(f"Take Profit Distance in Pips: {take_profit_distance}")
 
         # Calculate the number of units
-        if stop_loss_distance:
-            units = int(risk_amount / (stop_loss_distance * pip_value))
-        else:
-            units = int(risk_amount / pip_value)  # Fallback if no stop-loss is provided
+        units = int(risk_amount / (stop_loss_distance * pip_value)) if stop_loss_distance else 0
 
         # Calculate margin (units / leverage)
         margin = (units * price) / leverage
@@ -431,16 +429,19 @@ async def calculate_units(
         # Calculate trade value (units * price)
         trade_value = units * price
 
-        # Calculate reward (take-profit distance * pip value * units) if take_profit_price is provided
-        reward = abs(take_profit_price - price) * pip_value * units if take_profit_price else None
+        # Calculate reward percentage (take-profit distance * pip value * units / account_balance_converted * 100) if take_profit_price is provided
+        reward = take_profit_distance * pip_value * units / account_balance_converted * 100 if take_profit_price else None
 
-        # Calculate risk (stop-loss distance * pip value * units) if stop_loss_price is provided
-        risk = stop_loss_distance * pip_value * units if stop_loss_price else None
+        # Calculate risk percentage (stop-loss distance * pip value * units / account_balance_converted * 100) if stop_loss_price is provided
+        risk = stop_loss_distance * pip_value * units / account_balance_converted * 100 if stop_loss_price else None
+
+        pip_value_quote_currency = pip_value * units if quote_currency != account_currency else pip_value
 
         # Debug log intermediate values
         logging.debug(f"{loc}: Account Balance: {account_balance}")
         logging.debug(f"{loc}: Risk Amount: {risk_amount}")
         logging.debug(f"{loc}: Stop Loss Distance: {stop_loss_distance}")
+        logging.debug(f"{loc}: Take Profit Distance: {take_profit_distance}")
         logging.debug(f"{loc}: Pip Value: {pip_value}")
         logging.debug(f"{loc}: Units: {units}")
 
@@ -451,7 +452,7 @@ async def calculate_units(
         return {
             "units": units,
             "margin": margin,
-            "pip_value": pip_value,
+            "pip_value": pip_value_quote_currency,
             "trade_value": trade_value,
             "reward": reward,
             "risk": risk,
