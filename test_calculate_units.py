@@ -11,10 +11,10 @@ async def test_calculate_units_live_exchange_rate():
     calculate_units.__globals__["get_account_balance"] = mock_get_account_balance
 
     # Test inputs
-    instrument = "EUR_USD"
-    price = 0.64902
-    stop_loss_price = 0.64772
-    take_profit_price = 0.65162
+    instrument = "XAU_USD"
+    price = 3386.575
+    stop_loss_price = 3379.802
+    take_profit_price = 3400.121
     risk_percent = 1.0
     trading_type = "practice"
 

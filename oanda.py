@@ -411,7 +411,7 @@ async def calculate_units(
         print(f"Risk Amount: {risk_amount}")
 
         # Determine pip value
-        pip_value = 0.0001 if "JPY" not in instrument else 0.01
+        pip_value = 0.0001 if "JPY" not in instrument and "XAU" not in instrument and "XAG" not in instrument else 0.01
 
         # Calculate stop-loss distance in pips
         stop_loss_distance = abs(price - stop_loss_price) / pip_value if stop_loss_price else None
@@ -424,10 +424,10 @@ async def calculate_units(
         units = int(risk_amount / (stop_loss_distance * pip_value)) if stop_loss_distance else 0
 
         # Calculate margin (units / leverage)
-        margin = (units * price) / leverage
+        margin = ((units * price) / leverage) / exchange_rate if quote_currency != account_currency else (units * price) / leverage
 
         # Calculate trade value (units * price)
-        trade_value = units * price
+        trade_value = (units * price) / exchange_rate if quote_currency != account_currency else (units * price)
 
         # Calculate reward percentage (take-profit distance * pip value * units / account_balance_converted * 100) if take_profit_price is provided
         reward = take_profit_distance * pip_value * units / account_balance_converted * 100 if take_profit_price else None
