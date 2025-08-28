@@ -1,0 +1,126 @@
+//@version=5
+// Backtested 365 days EURUSD 10m 261 trades, 41% profitable trades, 1.101 profit factor
+// Backtested 365 days ETHUSD 45m 124 trades, 47.58% profitable trades, 1.291 profit factor
+strategy("Daily One-Shot: EMA/RSI (ATR SL/TP, 1% risk, alerts)",
+     overlay=true,
+     initial_capital=100000,
+     commission_type=strategy.commission.percent,
+     commission_value=0.0,
+     pyramiding=0,
+     calc_on_order_fills=true,
+     process_orders_on_close=true)
+
+// ===== Inputs =====
+useFVG       = input.bool(false, "Use FVG filter (off = EMA/RSI entries)")
+emaFastLen   = input.int(8,  "EMA Fast", minval=1)
+emaSlowLen   = input.int(21, "EMA Slow", minval=1)
+rsiLen       = input.int(14, "RSI Length")
+rsiLongMin   = input.float(52, "Min RSI for Long", step=0.1)   // a bit looser to increase freq
+rsiShortMax  = input.float(48, "Max RSI for Short", step=0.1)
+
+atrLen       = input.int(14, "ATR Length")
+atrSLmult    = input.float(1.0, "ATR × for Stop", step=0.1)    // slightly tighter stops
+tpRR         = input.float(1.6, "Take-Profit R multiple", step=0.1) // more hits
+
+riskPct      = input.float(1.0, "Risk % of Equity", step=0.1, minval=0.1, maxval=5.0)
+maxTradesDay = input.int(1, "Max trades per day", minval=1, maxval=10)
+
+sess         = input.session("0700-2100", "Trading Session (blocks outside)")
+
+// ===== Core calcs =====
+emaF = ta.ema(close, emaFastLen)
+emaS = ta.ema(close, emaSlowLen)
+rsi  = ta.rsi(close, rsiLen)
+atr  = ta.atr(atrLen)
+inSess = time(timeframe.period, sess)
+
+// ----- FVG (optional) -----
+bullFVG = high[2] < low[1] and high[2] < low
+bearFVG = low[2]  > high[1] and low[2]  > high
+
+// ===== Entry logic (more frequent) =====
+// Long bias = trend + momentum + cheap pullback
+trendUp   = emaF > emaS
+trendDown = emaF < emaS
+
+pullbackLong  = close <= emaF and close[1] < close   // minor dip then uptick
+pullbackShort = close >= emaF and close[1] > close
+
+emaCrossUp   = ta.crossover(emaF, emaS)
+emaCrossDown = ta.crossunder(emaF, emaS)
+
+// Base signals (EMA/RSI). Add FVG only if toggled on
+longSigBase  = inSess and trendUp   and (emaCrossUp or pullbackLong)  and rsi >= rsiLongMin
+shortSigBase = inSess and trendDown and (emaCrossDown or pullbackShort) and rsi <= rsiShortMax
+
+longSig  = useFVG ? (longSigBase  and bullFVG) : longSigBase
+shortSig = useFVG ? (shortSigBase and bearFVG) : shortSigBase
+
+// ===== Daily trade cap =====
+var int tradesToday = 0
+newDay = ta.change(time("D"))
+if newDay
+    tradesToday := 0
+
+canTrade = tradesToday < maxTradesDay
+
+// ===== Risk sizing =====
+longStopDist  = atr * atrSLmult
+shortStopDist = atr * atrSLmult
+nzL = math.max(longStopDist,  syminfo.mintick)
+nzS = math.max(shortStopDist, syminfo.mintick)
+
+riskCash = strategy.equity * (riskPct / 100.0)
+pointValue = syminfo.pointvalue
+
+qtyLong  = math.round(riskCash / (nzL * pointValue))
+qtyShort = math.round(riskCash / (nzS * pointValue))
+
+// Entry/SL/TP (computed each bar)
+longEP  = close
+shortEP = close
+longSL  = longEP  - nzL
+shortSL = shortEP + nzS
+longTP  = longEP  + nzL * tpRR
+shortTP = shortEP - nzS * tpRR
+
+// ===== Orders (respect daily cap) =====
+if (barstate.isconfirmed and canTrade and longSig and qtyLong > 0)
+    strategy.entry("Long", strategy.long, qty=qtyLong)
+    strategy.exit("L-Exit", from_entry="Long", stop=longSL, limit=longTP)
+    tradesToday += 1
+
+if (barstate.isconfirmed and canTrade and shortSig and qtyShort > 0)
+    strategy.entry("Short", strategy.short, qty=qtyShort)
+    strategy.exit("S-Exit", from_entry="Short", stop=shortSL, limit=shortTP)
+    tradesToday += 1
+
+// ===== Plots =====
+plot(emaF, "EMA Fast",  color=color.new(color.teal, 0))
+plot(emaS, "EMA Slow",  color=color.new(color.orange, 0))
+plot(longSL,  "SL Long",   color=color.new(color.red,   70), style=plot.style_linebr)
+plot(shortSL, "SL Short",  color=color.new(color.red,   70), style=plot.style_linebr)
+plot(longTP,  "TP Long",   color=color.new(color.green, 70), style=plot.style_linebr)
+plot(shortTP, "TP Short",  color=color.new(color.green,70), style=plot.style_linebr)
+
+// ===== Alerts (your working format) =====
+if (barstate.isconfirmed and longSig and canTrade)
+    alert('{"action":"open_long","ticker":"' + syminfo.ticker + '","price":' + str.tostring(longEP, format.mintick) +
+          ',"stop_loss_price":' + str.tostring(longSL, format.mintick) +
+          ',"take_profit_price":' + str.tostring(longTP, format.mintick) +
+          ',"trading_type":"practice","id":"' + str.tostring(bar_index) + '"}', alert.freq_once_per_bar_close)
+
+if (barstate.isconfirmed and shortSig and canTrade)
+    alert('{"action":"open_short","ticker":"' + syminfo.ticker + '","price":' + str.tostring(shortEP, format.mintick) +
+          ',"stop_loss_price":' + str.tostring(shortSL, format.mintick) +
+          ',"take_profit_price":' + str.tostring(shortTP, format.mintick) +
+          ',"trading_type":"practice","id":"' + str.tostring(bar_index) + '"}', alert.freq_once_per_bar_close)
+
+// ===== Optional debug label =====
+showLabel = input.bool(false, "Show debug label")
+if showLabel and (longSig or shortSig)
+    txt = "qty=" + str.tostring(longSig ? qtyLong : qtyShort) +
+          " SL=" + str.tostring(longSig ? longSL : shortSL, format.mintick) +
+          " TP=" + str.tostring(longSig ? longTP : shortTP, format.mintick) +
+          " tradesToday=" + str.tostring(tradesToday)
+    label.new(bar_index, high, txt, style=label.style_label_down, textcolor=color.white, color=color.new(color.black, 20))
