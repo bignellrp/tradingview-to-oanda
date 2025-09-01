@@ -392,7 +392,7 @@ async def calculate_units(
     loc = "oanda.py:calculate_units"
 
     try:
-        # Retrieve account balance and leverage
+        # Retrieve account balance and leverage once
         account_data = await get_account_balance(trading_type)
         account_balance = account_data["balance"]
         leverage = account_data["leverage"]
@@ -401,7 +401,7 @@ async def calculate_units(
         # Convert account balance to target currency if necessary
         quote_currency = instrument.split("_")[1]
         if quote_currency != account_currency:
-            exchange_rate = await get_accountcurrency_exchange_rate(quote_currency, trading_type)
+            exchange_rate = await get_accountcurrency_exchange_rate(quote_currency, trading_type, account_currency)
             account_balance_converted = account_balance * exchange_rate
         else:
             account_balance_converted = account_balance
