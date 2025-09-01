@@ -6,7 +6,7 @@ import aiofiles  # For asynchronous file I/O
 import httpx  # For asynchronous HTTP requests
 
 # Enable debug mode to log requests instead of sending them to OANDA
-DEBUG_MODE = False
+DEBUG_MODE = True
 
 def get_datetime_offset(offset_minutes: int = 15) -> str:
     """Get the current UTC time offset by a given number of minutes in RFC3339 format."""
