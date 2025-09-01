@@ -261,6 +261,9 @@ async def webhook(token: str, request: Request):
 
     local_log.add(f"OANDA parameters:\n{json.dumps(oanda_parameters, indent=2)}")
 
+    # Retrieve account balance once at the start of the workflow
+    account_balance = await get_account_balance(oanda_parameters["trading_type"])
+
     # Place order
     try:
         if post_data["action"] == "open_long":
@@ -292,7 +295,7 @@ async def webhook(token: str, request: Request):
                 units=oanda_parameters["units"],
                 trading_type=oanda_parameters["trading_type"],
                 status="success",
-                account_balance=await get_account_balance(oanda_parameters["trading_type"]),
+                account_balance=account_balance,
                 id_number=id_number,
                 margin=trade_details["margin"],
                 pip_value=trade_details["pip_value"],
@@ -315,7 +318,7 @@ async def webhook(token: str, request: Request):
                 units=None,
                 trading_type=oanda_parameters["trading_type"],
                 status="success",
-                account_balance=await get_account_balance(oanda_parameters["trading_type"]),
+                account_balance=account_balance,
                 id_number=id_number,
             )
         elif post_data["action"] == "open_short":
@@ -347,7 +350,7 @@ async def webhook(token: str, request: Request):
                 units=oanda_parameters["units"],
                 trading_type=oanda_parameters["trading_type"],
                 status="success",
-                account_balance=await get_account_balance(oanda_parameters["trading_type"]),
+                account_balance=account_balance,
                 id_number=id_number,
                 margin=trade_details["margin"],
                 pip_value=trade_details["pip_value"],
@@ -370,7 +373,7 @@ async def webhook(token: str, request: Request):
                 units=None,
                 trading_type=oanda_parameters["trading_type"],
                 status="success",
-                account_balance=await get_account_balance(oanda_parameters["trading_type"]),
+                account_balance=account_balance,
                 id_number=id_number,
             )
         else:
