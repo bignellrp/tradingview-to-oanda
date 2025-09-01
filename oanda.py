@@ -463,13 +463,14 @@ async def calculate_units(
         logging.exception(f"{loc}: Could not calculate units: {e}")
         raise
 
-async def get_accountcurrency_exchange_rate(quote_currency: str, trading_type: str = "practice") -> float:
+async def get_accountcurrency_exchange_rate(quote_currency: str, trading_type: str = "practice", account_currency: str = None) -> float:
     """
     Retrieve the midpoint exchange rate for ACCOUNT_CURRENCY/QUOTE using OANDA's Pricing API.
 
     Args:
         quote_currency (str): The quote currency (e.g., "JPY" from "USD_JPY").
         trading_type (str): The trading type, either "practice" or "live".
+        account_currency (str, optional): The account currency. If not provided, it will be retrieved.
 
     Returns:
         float: The midpoint exchange rate for ACCOUNT_CURRENCY/QUOTE.
@@ -477,9 +478,10 @@ async def get_accountcurrency_exchange_rate(quote_currency: str, trading_type: s
     loc = "oanda.py:get_accountcurrency_exchange_rate"
 
     try:
-        # Retrieve account currency from get_account_balance
-        account_data = await get_account_balance(trading_type)
-        account_currency = account_data["currency"]
+        # Retrieve account currency if not provided
+        if not account_currency:
+            account_data = await get_account_balance(trading_type)
+            account_currency = account_data["currency"]
 
         # Construct the instrument (e.g., USD_JPY or GBP_JPY)
         instrument = f"{account_currency}_{quote_currency}"
@@ -489,36 +491,31 @@ async def get_accountcurrency_exchange_rate(quote_currency: str, trading_type: s
 
         # OANDA Pricing API URL
         url = f"{get_base_url(trading_type)}/v3/accounts/{credentials['account_id']}/pricing"
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {credentials['api_key']}",
-        }
-        params = {
-            "instruments": instrument  # e.g., "USD_JPY" or "GBP_JPY"
-        }
+        params = {"instruments": instrument}
 
-        # Log the purpose of the API call
+        # Log the API call
         logging.info(f"{loc}: [GET_EXCHANGE_RATE] Making API call to {url} with params {params}")
 
-        # Make the API request
         async with httpx.AsyncClient() as client:
-            response = await client.get(url, headers=headers, params=params)
+            response = await client.get(url, headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {credentials['api_key']}",
+            }, params=params)
             response.raise_for_status()
-            pricing_data = response.json()
+            data = response.json()
 
-            # Extract the midpoint price (average of bid and ask)
-            prices = pricing_data["prices"]
-            for price_data in prices:
-                if price_data["instrument"] == instrument:
-                    bid = float(price_data["bids"][0]["price"])
-                    ask = float(price_data["asks"][0]["price"])
+            # Extract the midpoint price
+            prices = data["prices"]
+            for price in prices:
+                if price["instrument"] == instrument:
+                    bid = float(price["bids"][0]["price"])
+                    ask = float(price["asks"][0]["price"])
                     midpoint = (bid + ask) / 2
                     return midpoint
 
-            # If the instrument is not found in the response
-            raise ValueError(f"Instrument {instrument} not found in pricing data.")
+        raise ValueError(f"{loc}: Could not find exchange rate for {instrument}")
     except Exception as e:
-        logging.exception(f"{loc}: Could not retrieve exchange rate for {account_currency}/{quote_currency}: {e}")
+        logging.exception(f"{loc}: Could not retrieve exchange rate: {e}")
         raise
 
 async def get_open_positions(trading_type: str = "practice") -> dict:
